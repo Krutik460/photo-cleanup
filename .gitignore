@@ -1,0 +1,10 @@
+# Built by setup.sh
+/analyze
+/sheet
+/.venv/
+/models/
+__pycache__/
+
+# Local machine settings
+.claude/settings.local.json
+.DS_Store

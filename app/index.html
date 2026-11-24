@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo cleanup</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<aside class="side" id="side" aria-label="Navigation">
+  <div class="side-brand">
+    <h1>Photo cleanup</h1>
+    <span class="root" id="root"></span>
+  </div>
+  <nav class="side-scroll" id="nav"></nav>
+  <div class="side-foot" id="totals"></div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="page">
+  <header class="topbar">
+    <button class="icon-btn" id="menu" aria-label="Open navigation" aria-controls="side" aria-expanded="false"></button>
+    <div class="crumbs" id="crumbs"></div>
+    <span class="save" id="save" role="status"></span>
+    <label class="size" title="Thumbnail size">
+      <span class="size-label">Size</span>
+      <input type="range" id="size" min="100" max="320" step="10" value="170" aria-label="Thumbnail size">
+    </label>
+    <button class="btn ghost" id="help-btn" title="Keyboard shortcuts (?)">Shortcuts</button>
+    <button class="btn" id="undo" hidden>Undo move</button>
+    <button class="btn danger" id="apply" disabled>Move marked photos</button>
+  </header>
+
+  <main id="main"></main>
+  <div id="sentinel"></div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden role="dialog" aria-label="Photo viewer">
+  <button class="lb-close" id="lb-close" aria-label="Close"></button>
+  <button class="lb-nav prev" id="lb-prev" aria-label="Previous photo"></button>
+  <button class="lb-nav next" id="lb-next" aria-label="Next photo"></button>
+  <div class="lb-stage"><img id="lb-img" alt=""></div>
+  <div class="lb-strip" id="lb-strip"></div>
+  <div class="lb-bar">
+    <div class="lb-meta" id="lb-meta"></div>
+    <div class="lb-states" id="lb-states"></div>
+  </div>
+</div>
+
+<div class="dialog" id="help" hidden role="dialog" aria-labelledby="help-title">
+  <div class="card">
+    <h2 id="help-title">Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>F</kbd></dt><dd>Mark as favorite</dd>
+      <dt><kbd>K</kbd></dt><dd>Keep</dd>
+      <dt><kbd>X</kbd></dt><dd>Mark for removal</dd>
+      <dt><kbd>U</kbd></dt><dd>Undo your choice (back to the suggestion)</dd>
+      <dt><kbd>D</kbd></dt><dd>Mark the group as reviewed and go to the next one</dd>
+      <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next photo</dd>
+      <dt><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>Previous / next group or row</dd>
+      <dt><kbd>Enter</kbd></dt><dd>Open the photo large</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close</dd>
+      <dt><kbd>?</kbd></dt><dd>Show this list</dd>
+    </dl>
+    <h3>What the marks mean</h3>
+    <ul class="legend">
+      <li><span class="swatch fav"></span>Favorite: the best shot, kept</li>
+      <li><span class="swatch keep"></span>Keep</li>
+      <li><span class="swatch remove"></span>Remove: dimmed, will be moved to _to_remove</li>
+      <li><span class="swatch you"></span>Blue dot: you changed the suggestion</li>
+    </ul>
+    <p class="muted">Shortcuts act on the highlighted photo. Hover or click a photo to highlight it.</p>
+    <button class="btn" data-close>Close</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>
