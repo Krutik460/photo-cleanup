@@ -4,6 +4,7 @@ import PhotoCleanupCore
 // Drives the core without the app.
 let usage = """
 usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.mlmodelc>] [--me <photo of you> ...]
+       photocleanup-cli second-opinion <library-dir> [--limit <batches>] [--model haiku] [--claude <path>]
        photocleanup-cli serve <library-dir> <app-folder> [port]     the review page on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but
@@ -64,6 +65,21 @@ case "analyze":
             }
             print("you appear in \(counts.0) of \(counts.1) photos with a recognisable face (threshold \(youThreshold))")
         }
+    } catch {
+        fail(error.localizedDescription)
+    }
+case "second-opinion":
+    let model = option("--model").last ?? "haiku", limit = option("--limit").last.flatMap(Int.init), preferred = option("--claude").last
+    guard args.count == 2 else { fail(usage) }
+    do {
+        let catalog = try Catalog(library: try Library.open(at: path(args[1])))
+        guard let cli = ClaudeCLI.locate(preferred: preferred) else { fail(ClaudeError.notFound.localizedDescription) }
+        let status = cli.status()
+        print("claude: \(cli.url.path) \(status.version ?? "?") - \(status.detail)")
+        guard status.loggedIn else { fail("not signed in") }
+        let p = try await SecondOpinionRun(cli: cli, model: model).run(catalog: catalog, limit: limit) { print($0.log) }
+        print(String(format: "%d of %d batches done, %d failed; %d groups reviewed; %d input and %d output tokens, reported cost %.4f",
+                     p.done - p.failed, p.total, p.failed, p.groups, p.usage.inputTokens, p.usage.outputTokens, p.usage.costUSD))
     } catch {
         fail(error.localizedDescription)
     }
