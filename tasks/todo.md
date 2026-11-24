@@ -775,3 +775,143 @@ folder light, review dark), Command deck (folder dark, home light and dark). Not
 Command deck's review screen and the other half of the light/dark pairs. No console errors.
 The agents' servers are all stopped. Still listening and mine: 127.0.0.1:8940 serving only
 `dist/compare/index.html`, left up while the user picks; stop it afterwards.
+# Rebuild the app's interface as "Glass workspace" - plan
+
+## Context
+
+The first redesign recolored the old layout and you called it "very old app ui". You compared four
+directions in `dist/design-directions.html` and picked **Glass workspace**: a floating translucent
+sidebar and toolbar over edge-to-edge photos, depth from blur and shadow instead of borders. This
+plan turns that mockup into the real interface, wired to the real backend, without losing any
+function of the current review page. The mockup (`dist/design/glass-workspace.html`) is the
+acceptance reference: the finished app is judged side by side against it.
+
+Nothing in the Swift core changes behaviour (analysis, grouping, faces, file steps, second opinion,
+import; 85 tests). This is a front-end rebuild plus a small app API.
+
+## Approach
+
+**The whole window becomes one web interface in the Glass workspace design**, drawn full-bleed in the
+web view under a hidden title bar, with the real traffic lights sitting where the mockup draws them.
+Home, the opening check, a folder, the review, Finish, scan progress and the second-opinion panel
+all live in it. Native code keeps the window, menus, file pickers, the Settings window and the
+bridge.
+
+Why not rebuild it in SwiftUI: you chose a specific look from an HTML mockup, and the same CSS
+(backdrop blur, color-mix, view transitions) runs in the app's web view, so the result can match
+what you picked exactly. A SwiftUI rebuild would be a reinterpretation and the largest way to miss
+again. The price is that drag-to-move-window regions are handled by the page telling the app to
+start a drag.
+
+### Front end: new folder `ui/` (the old `app/` stays for the Python scripts until they are retired)
+
+Vanilla JS and CSS, no build step, classic scripts, served by the existing `Router`.
+
+- `ui/index.html`, `ui/ui.css` (tokens and components taken from the mockup, lines 8-358), and JS
+  split by concern: `api.js` (requests, save queue), `store.js` (data and derived counts),
+  `render-*.js` (home, sidebar and toolbar, folder, review, finish, viewer, popovers), `keys.js`,
+  `main.js` (routing, boot).
+- Appearance follows the system (`prefers-color-scheme`; the web view follows the app). The
+  mockup's manual theme switch goes.
+- Hash routes with real history (back and forward gestures work): `#home`, `#organize`,
+  `#c/<collection>`, `#view/<all|you|groups|close|singles|favs|remove|blurry|utility>`; Finish and
+  the viewer open over the current route.
+
+Everything the current page does is carried over (inventory: `app/app.js`), restyled:
+
+| Area | Kept from the current page | New in Glass workspace |
+| --- | --- | --- |
+| Home | - | Space saved, waiting, reviewed, Claude status, folder cards with cover mosaics, add or drop a folder, remove a folder (to the Trash) |
+| Opening check | - | Animated mark, the three checks, Terminal commands when Claude is missing or signed out (shown and copied, never run) |
+| Folder (Organize) | Merge by selection, "Merge with...", merge hints, rename, not a trip / restore, split, folder switch, library views | Floating sidebar with thumbnails and counts, cover mosaic grid, filter chips, search |
+| Review | F K X U D S N, arrows, Enter, Esc, ?; keepers first; Claude's reason; Close call, You, Edited; mark reviewed and fold; Keep all, Reset; photos on their own by day; select photos and Move to...; end-of-collection panel | Borderless bands with a large favorite, dimmed removes instead of red outlines, floating action bar, favorite swap animation |
+| Viewer | Full-size photo, filmstrip, state buttons, facts, preloading | Dark glass viewer |
+| Finish | Organize files with per-collection switches, remove duplicate copies first, clean up, in-place confirms, both undos, unreviewed warning | A glass sheet with the two steps |
+| Second opinion, scan | Start, stop, progress, log; scan with cancel and unreadable files | Glass popover from the toolbar; a glass progress overlay for the first scan |
+
+Fixes for what the mockup faked or would not survive real data (from the engineering map):
+progressive rendering in chunks instead of building every band at once; a keypress repaints only
+the photo, its group and the counts; view-transition names only on the focused band; no base64
+images; nothing assumes the favorite is the first member, three folders, or one folder; Escape
+cancels a rename; real focus for accessibility; sizes work from 1200 to 1728 wide.
+
+### Sharper photos: one new image size
+
+Tiles keep `/thumb/<id>` (480 px). Covers and the large favorite use a new `/mid/<id>` (1,280 px
+JPEG, made once and cached next to the previews, same code path as `preview(of:)` in
+`Core/.../Catalog/Router.swift`). The viewer keeps `/full/<id>`.
+
+### App API: `/app/*` next to the existing `/api/*`
+
+The page needs what only the app knows. A small `AppRouter` in Core answers `/app/*` through an
+`AppHost` protocol and passes everything else to the open library's `Router`:
+
+- `GET /app/state`: folders with their summaries (`LibrarySummary`) and covers, which one is open,
+  Claude status, totals, scan progress, second-opinion progress and log. The page polls it only
+  while something is running.
+- `GET /app/thumb/<folder>/<photo>` for folder covers.
+- `POST /app/open`, `/app/close`, `/app/add`, `/app/remove`, `/app/scan`, `/app/opinion`,
+  `/app/reveal`, `/app/settings`, `/app/claude`, `/app/import`, `/app/window` (drag, zoom).
+
+Two hosts implement `AppHost`: the Mac app (through `AppModel`, which already has every one of
+these operations) and `photocleanup-cli serve` (one library, no native panels), so the whole
+interface can be developed and checked in the browser as before.
+
+### Mac app shell (MacApp/)
+
+- Window: hidden title bar, content under it, traffic lights moved to the mockup's position and
+  kept there on resize and full screen.
+- `PageView` becomes the only view. Removed: `LaunchView`, `HomeView`, the SwiftUI library chrome,
+  `SecondOpinionPanel`, most of `Theme.swift`. Kept: `SettingsView`, menus, `DebugAutomation`
+  (pictures get simpler: the window is the web view).
+- `SchemeHandler` feeds `AppRouter`; `AppModel` implements `AppHost`.
+- `project.yml` bundles `ui/` instead of `app/`.
+
+## Order of work
+
+1. Foundation: `AppHost` + `AppRouter` + `/mid`, CLI host, `ui/` skeleton with tokens, store, api,
+   routing; window chrome in the app.
+2. Home and the opening check. Picture in the app, light and dark, next to the mockup.
+3. Folder screen: sidebar, toolbar, cover grid, organize actions, library views.
+4. Review: bands, states, keyboard, reviewed and fold, own-day photos, selection and Move to...,
+   viewer. Send you pictures here before going on.
+5. Finish sheet, second-opinion popover, scan overlay, errors (drive not connected, unreadable).
+6. Polish pass against the mockup at 1200, 1440 and 1728, both appearances; reduced motion.
+7. Tests, fresh DMG, README and notes in `tasks/todo.md`.
+
+Steps 3-5 have independent parts (viewer, Finish sheet, popovers) that I may give to sub agents
+once the foundation fixes the shared code; I review and integrate everything.
+
+## Files
+
+- New: `ui/` (index.html, ui.css, about nine JS files), `Core/Sources/PhotoCleanupCore/Catalog/AppRouter.swift`,
+  `MacApp/AppHost+Model.swift`, tests `AppRouterTests.swift`.
+- Changed: `Core/.../Catalog/Router.swift` (`/mid`), `Core/Sources/photocleanup-cli/main.swift`
+  and `LocalServer.swift` (serve with an app host), `MacApp/PageView.swift`, `SchemeHandler.swift`,
+  `AppModel.swift`, `PhotoCleanupApp.swift`, `RootView.swift`, `DebugAutomation.swift`, `project.yml`.
+- Removed: `MacApp/LaunchView.swift`, `HomeView.swift`, `SecondOpinionPanel.swift`.
+- Untouched: `app/` (old page), all analysis, grouping, faces, file-step and import code.
+
+## Verification
+
+- `swift test --package-path Core`: the 85 existing tests plus `AppRouter` routes and `/mid`.
+- In the browser, through `photocleanup-cli serve` on scratch copies of the 120 sample photos
+  (never your real folder): every row of the table above, with real clicks and keys, console clean.
+- In the app, pictured by the debug build: opening check (ready, missing, signed out), home, folder,
+  review, viewer, Finish, second opinion, scan progress; light and dark; 1200, 1440, 1728 wide; each
+  compared with the mockup.
+- End to end in the app on a scratch copy: add a folder, scan, merge and rename, review a collection
+  with the keyboard, one real second opinion, organize files, clean up, both undos; the folder ends
+  as it began.
+- Release DMG builds and launches.
+
+## Risks
+
+- Window dragging from the page's toolbar relies on the app starting a drag when the page asks. If
+  it feels wrong, the fallback is a thin native drag strip above the toolbar.
+- Heavy blur on large layers can cost frame rate with many photos; the ambient wash and glows get
+  cut back first if scrolling is not smooth.
+- The mockup was only seen in a Chromium browser; the app uses WebKit. Step 2 pictures it in the
+  app early so differences surface on one screen, not eight.
+- `ui/` replaces `app/` in the app only. The other session's uncommitted edit to `app/app.js` on
+  `main` no longer matters to the app, but `README.md` will still conflict at merge.
