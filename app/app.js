@@ -29,6 +29,11 @@ const ICONS = {
   split: '<path d="M12 20v-7"/><path d="M12 13L6 6M12 13l6-7"/><path d="M6 10V6h4M18 10V6h-4"/>',
   folder: '<path d="M3.5 7.5a2 2 0 012-2h4l2 2.5h7a2 2 0 012 2v7.5a2 2 0 01-2 2h-13a2 2 0 01-2-2z"/>',
   undo: '<path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
+  more: '<circle cx="5.5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="18.5" cy="12" r="1.3" fill="currentColor"/>',
+  chev: '<path d="M6 9l6 6 6-6"/>',
+  pencil: '<path d="M4 20h4L19 9a2.8 2.8 0 00-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/>',
+  warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.2v.1"/>',
 };
 
 function icon(name, size = 16) {
@@ -81,9 +86,11 @@ const S = {
   collections: [], colById: {}, newestFirst: [],
   decisions: {}, haiku: {}, moved: new Set(), filed: {}, reviewed: new Set(),
   total: null, stats: new Map(),
-  route: "overview", view: null, rendered: 0, lastDay: null, wrap: null,
+  route: "organize", view: null, rendered: 0, lastDay: null, wrap: null,
   cursor: null, nextId: null, renaming: false, navRefs: new Map(),
   lb: null, saving: Promise.resolve(), pending: 0,
+  sel: new Set(), selFrom: null, colSel: new Set(), expanded: new Set(), dupTitles: new Set(),
+  finish: null,  // the confirm step on the Finish page: null, "move" or "undo"
 };
 
 /* ---------- decisions ---------- */
@@ -108,6 +115,7 @@ function setStates(changes) {
 
 function setReviewed(g, on) {
   for (const id of g.members) if (on) S.reviewed.add(id); else S.reviewed.delete(id);
+  S.expanded.delete(g.id);  // marking reviewed folds the group away
   updateNext();
   refreshGroup(g.id);
   refreshCounts();
@@ -189,7 +197,12 @@ function defaultTitle(c) {
     }
   }
 }
-const colTitle = (c) => colName(c) || defaultTitle(c);
+// Unnamed collections whose default title repeats (an everyday month in two years) get their year.
+function colTitle(c) {
+  if (colName(c)) return colName(c);
+  const t = defaultTitle(c);
+  return S.dupTitles.has(t) ? t + (c.kind === "everyday" ? " " : ", ") + colYear(c) : t;
+}
 
 // The line under a title: what kind of collection it is, when, and how far from home.
 function colMeta(c) {
@@ -246,32 +259,41 @@ const nextCollection = (except) => S.newestFirst.find((c) => c !== except && S.s
 
 /* ---------- views ---------- */
 
+// Keepers first (favorite, then keep), then the rest, each in time order. Worked out when the view is
+// built, so a photo never jumps while you change its state.
+function displayOrder(g) {
+  const rank = (id) => ({ fav: 0, keep: 1, remove: 2 })[eff(id)];
+  return g.members.map((id, i) => [id, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
+}
+
 function buildView(route) {
-  const v = { route, type: "overview", title: "Overview", items: [], groups: [], flat: [], itemOf: new Map() };
+  const v = { route, type: route, title: route === "finish" ? "Finish" : "Organize", items: [], groups: [], flat: [], itemOf: new Map() };
   const c = S.colById[route];
   const lib = LIBRARY_BY_ID[route];
+  const groupItem = (g) => ({ group: g, order: displayOrder(g) });
   if (c) {
     v.type = "collection";
     v.col = c;
     v.title = colTitle(c);
     v.groups = c.groups.map((id) => S.groupById[id]);
     const singles = c.members.filter((id) => !S.photos[id].group);
-    if (v.groups.length) v.items.push({ section: "Groups to clean up", count: v.groups.length }, ...v.groups.map((g) => ({ group: g })));
+    if (v.groups.length) v.items.push({ section: "Groups to clean up", count: v.groups.length }, ...v.groups.map(groupItem));
     if (singles.length) v.items.push({ section: v.groups.length ? "Other photos" : "Photos", count: singles.length }, ...singles.map((id) => ({ photo: id })));
+    v.items.push({ end: true });
   } else if (lib) {
     v.type = "library";
     v.lib = lib;
     v.title = lib.label;
     if (lib.groups) {
       v.groups = lib.groups();
-      v.items = v.groups.map((g) => ({ group: g }));
+      v.items = v.groups.map(groupItem);
     } else {
       v.items = lib.photos().map((id) => ({ photo: id }));
     }
   }
   v.items.forEach((item, i) => {
     item.i = i;
-    for (const id of item.group ? item.group.members : item.photo ? [item.photo] : []) {
+    for (const id of item.group ? item.order : item.photo ? [item.photo] : []) {
       v.flat.push(id);
       v.itemOf.set(id, item);
     }
@@ -283,8 +305,15 @@ function libraryCount(lib) {
   return lib.groups ? lib.groups().length : lib.photos().filter(live).length;
 }
 
+const hasGroups = () => S.view && (S.view.type === "collection" || S.view.type === "library") && S.view.groups.length > 0;
+
 function renderView() {
   const v = (S.view = buildView(S.route));
+  for (const id of S.sel) if (!v.itemOf.has(id)) S.sel.delete(id);
+  if (v.type !== "organize") S.colSel.clear();
+  if (v.type !== "finish") S.finish = null;
+  closeMenu();
+  paintSelection();
   S.rendered = 0;
   S.lastDay = null;
   S.wrap = null;
@@ -292,19 +321,24 @@ function renderView() {
   if (S.cursor && !v.itemOf.has(S.cursor)) S.cursor = null;
   S.nextId = (firstUnreviewed() || {}).id || null;
   document.title = v.title + " - Photo cleanup";
-  paintCrumbs();
+  paintSteps();
   for (const a of document.querySelectorAll(".nav-item")) {
     const on = a.dataset.route === v.route;
     a.classList.toggle("on", on);
     if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
+  if (v.type === "library") $("#nav-lib").open = true;
+  $("#size-box").hidden = v.type === "organize" || v.type === "finish";
 
   const main = $("#main");
+  main.className = "view-" + v.type + (v.route === "remove" ? " no-dim" : "");
   main.replaceChildren(viewHead());
-  if (v.type === "overview") main.append(overviewBody());
+  if (v.type === "organize") main.append(organizeBody());
+  else if (v.type === "finish") main.append(finishBody());
   else if (!v.flat.length) main.append(el("div", "empty", v.lib.empty || "Nothing here."));
   else fill();
   markCursor();
+  watchHead();
 }
 
 // Appends the next batch of the current view. Returns false when everything is rendered.
@@ -316,10 +350,14 @@ function renderMore() {
   while (budget > 0 && S.rendered < v.items.length) {
     const item = v.items[S.rendered++];
     if (item.section) {
-      main.append(el("h3", "section", item.section, el("span", "n", item.count.toLocaleString())));
+      const h = el("h3", "section", item.section, el("span", "n", item.count.toLocaleString()));
+      if (item.section === "Other photos") h.id = "others";
+      main.append(h);
       S.wrap = S.lastDay = null;
+    } else if (item.end) {
+      main.append(endPanel());
     } else if (item.group) {
-      main.append(groupCard(item.group));
+      main.append(groupCard(item));
       S.wrap = S.lastDay = null;
       budget -= item.group.members.length;
     } else {
@@ -348,10 +386,15 @@ function ensureRendered(selector) {
   return node;
 }
 
-/* ---------- view header ---------- */
+/* ---------- small shared pieces ---------- */
 
-function statBlock(value, label, cls) {
-  return el("div", "stat" + (cls ? " " + cls : ""), el("b", null, value), el("span", null, label));
+function thumb(id, cls) {
+  const img = el("img", cls);
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.alt = "";
+  if (id) img.src = "/thumb/" + id;
+  return img;
 }
 
 function progressBar(st) {
@@ -360,18 +403,100 @@ function progressBar(st) {
   return bar;
 }
 
-function progressBox(st, action) {
-  const label = st.groups
-    ? `${st.done.toLocaleString()} of ${plural(st.groups, "group")} reviewed`
-    : "No near-identical photos here, nothing to review";
-  return el("div", "progress-box", el("div", "progress-text", el("span", null, label), st.groups ? progressBar(st) : null), action);
+function progressText(st) {
+  return st.groups ? `${st.done.toLocaleString()} of ${plural(st.groups, "group")} reviewed` : "No near-identical photos here";
 }
 
 function actionButton(label, onClick, primary) {
-  const b = el("button", "btn" + (primary ? " primary" : ""), label, icon("arrow", 15));
+  const b = el("button", "btn" + (primary ? " primary" : ""), el("span", "btn-text", label), icon("arrow", 15));
   b.onclick = onClick;
   return b;
 }
+
+function linkButton(label, route, cls) {
+  const a = el("a", "btn" + (cls ? " " + cls : ""), el("span", "btn-text", label), icon("arrow", 15));
+  a.href = "#" + route;
+  return a;
+}
+
+// "1,037 to remove · 2.1 GB" style counts with the colored marks.
+function countsLine(st) {
+  return el("span", "counts",
+    el("span", null, plural(st.photos, "photo")),
+    el("span", "fav", icon("star", 12), st.fav.toLocaleString()),
+    el("span", "remove", icon("x", 12), st.remove.toLocaleString() + (st.remove ? " · " + fmtBytes(st.bytes) : "")));
+}
+
+/* ---------- menus ---------- */
+
+// One popup menu for the whole page; items are {label, icon, onClick}.
+function openMenu(anchor, items) {
+  const m = $("#menu-pop");
+  if (!m.hidden && S.menuAnchor === anchor) return closeMenu();
+  closeMenu();
+  m.replaceChildren(...items.filter(Boolean).map((it) => {
+    const b = el("button", "menu-item", it.icon ? icon(it.icon, 15) : null, it.label);
+    b.setAttribute("role", "menuitem");
+    b.onclick = () => { closeMenu(); it.onClick(); };
+    return b;
+  }));
+  m.hidden = false;
+  S.menuAnchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
+  const r = anchor.getBoundingClientRect();
+  const left = Math.max(8, Math.min(r.right - m.offsetWidth, innerWidth - m.offsetWidth - 8));
+  const below = r.bottom + 6 + m.offsetHeight < innerHeight - 8;
+  m.style.left = left + "px";
+  m.style.top = (below ? r.bottom + 6 : r.top - m.offsetHeight - 6) + "px";
+  m.querySelector("button").focus();
+}
+
+function closeMenu() {
+  const m = $("#menu-pop");
+  if (m.hidden) return;
+  m.hidden = true;
+  if (S.menuAnchor) S.menuAnchor.setAttribute("aria-expanded", "false");
+  S.menuAnchor = null;
+}
+
+function moreButton(label, items) {
+  const b = el("button", "btn ghost small more", icon("more", 16));
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.setAttribute("aria-haspopup", "menu");
+  b.setAttribute("aria-expanded", "false");
+  b.onclick = () => openMenu(b, items());
+  return b;
+}
+
+// Capture phase: a click outside closes the menu before anything else reacts. Its own button toggles it.
+document.addEventListener("click", (e) => {
+  if (!$("#menu-pop").hidden && !e.target.closest("#menu-pop") && (!S.menuAnchor || !S.menuAnchor.contains(e.target))) closeMenu();
+}, true);
+addEventListener("scroll", closeMenu, { passive: true });
+addEventListener("resize", closeMenu);
+
+/* ---------- step tabs ---------- */
+
+function paintSteps() {
+  const v = S.view;
+  if (!v) return;
+  const t = S.total, m = movePlan();
+  const n = m.remove + m.toFile;
+  const active = v.type === "organize" ? "organize" : v.type === "finish" ? "finish" : "review";
+  const step = (id, label, status) => {
+    const a = el("a", "step" + (id === active ? " on" : ""), el("span", "step-label", label), el("span", "step-status", status));
+    a.href = "#" + id;
+    if (id === active) a.setAttribute("aria-current", "page");
+    return a;
+  };
+  $("#steps").replaceChildren(
+    step("organize", "Organize", plural(S.collections.length, "collection")),
+    step("review", "Review", t.groups ? `${t.done.toLocaleString()} of ${plural(t.groups, "group")}` : "nothing to review"),
+    step("finish", "Finish", n ? `${n.toLocaleString()} to move` : S.moved.size + Object.keys(S.filed).length ? "moved" : "nothing to move"));
+}
+
+/* ---------- view header ---------- */
 
 function viewHead() {
   const v = S.view;
@@ -380,43 +505,45 @@ function viewHead() {
 
   if (v.type === "collection") {
     const c = v.col, st = S.stats.get(c.id);
-    const rename = el("button", "btn ghost small", "Rename");
-    rename.onclick = startRename;
+    const rename = el("button", "btn ghost small", icon("pencil", 13), "Rename");
+    rename.onclick = () => startRename(c, head.querySelector(".title-row"));
     head.append(el("div", "vhead-top",
       el("span", "kind-ico big " + c.kind, icon(c.kind, 22)),
       el("div", "vhead-text",
         el("div", "title-row", el("h2", null, colTitle(c)), rename),
-        el("p", "vmeta", colMeta(c)),
-        collectionTools(c))));
-    if (c.folded) head.append(...c.folded.map(foldedNote));
+        el("p", "vmeta", colMeta(c))),
+      moreButton("More actions for this collection", () => collectionMenu(c))));
+    if (c.folded) head.append(foldedNotes(c.folded));
     let action = null;
     if (st.left) action = actionButton("Review next group", () => focusGroup(firstUnreviewed(), "start"), true);
     else {
       const next = nextCollection(c);
-      if (next) action = actionButton("Next: " + colTitle(next), () => go(next.id), st.groups > 0);
+      action = next ? actionButton("Next: " + colTitle(next), () => go(next.id), st.groups > 0) : linkButton("Finish", "finish", "primary");
     }
-    head.append(el("div", "vhead-bottom",
-      el("div", "stats",
-        statBlock(st.photos.toLocaleString(), st.photos === 1 ? "photo" : "photos"),
-        statBlock(st.fav.toLocaleString(), st.fav === 1 ? "favorite" : "favorites", "fav"),
-        statBlock(st.remove.toLocaleString(), "to remove" + (st.remove ? " · " + fmtBytes(st.bytes) : ""), "remove")),
-      progressBox(st, action)),
-      folderRow(c));
+    head.append(el("div", "vbar",
+      el("div", "vbar-progress", el("div", "vbar-line", el("span", null, progressText(st)), countsLine(st)), st.groups ? progressBar(st) : null),
+      action),
+      folderLine(c));
     return head;
   }
 
-  if (v.type === "overview") {
-    const t = S.total;
+  if (v.type === "organize") {
+    const kinds = {};
+    for (const c of S.collections) kinds[c.kind] = (kinds[c.kind] || 0) + 1;
+    const names = { trip: "trip", daytrip: "day trip", event: "event", everyday: "everyday month" };
+    const summary = Object.keys(names).filter((k) => kinds[k]).map((k) => plural(kinds[k], names[k])).join(" · ");
     head.append(el("div", "vhead-top", el("div", "vhead-text",
-      el("div", "title-row", el("h2", null, "Overview")),
-      el("p", "vmeta", "Your photos by trip and event. Open one to clean it up, newest first."))));
-    head.append(el("div", "vhead-bottom",
-      el("div", "stats",
-        statBlock(t.photos.toLocaleString(), t.photos === 1 ? "photo" : "photos"),
-        statBlock(S.collections.length.toLocaleString(), "trips, events and months"),
-        statBlock(t.fav.toLocaleString(), t.fav === 1 ? "favorite" : "favorites", "fav"),
-        statBlock(t.remove.toLocaleString(), "to remove" + (t.remove ? " · " + fmtBytes(t.bytes) : ""), "remove")),
-      progressBox(t, null)));
+      el("div", "title-row", el("h2", null, "Organize")),
+      el("p", "vmeta", "Merge the trips and events that belong together, and unmark the ones that are not really trips or events. Only this page changes; no files move.")),
+      S.collections.length ? linkButton("Start reviewing", "review", "primary") : null));
+    if (summary) head.append(el("p", "vsummary", summary));
+    return head;
+  }
+
+  if (v.type === "finish") {
+    head.append(el("div", "vhead-top", el("div", "vhead-text",
+      el("div", "title-row", el("h2", null, "Finish")),
+      el("p", "vmeta", "Check what Move will do, then move. Nothing is deleted: removed photos go to a _to_remove folder, and Undo puts everything back."))));
     return head;
   }
 
@@ -427,7 +554,7 @@ function viewHead() {
   if (v.groups.length) {
     const st = progress(v.groups);
     const action = st.left ? actionButton("Review next group", () => focusGroup(firstUnreviewed(), "start"), true) : null;
-    head.append(el("div", "vhead-bottom", progressBox(st, action)));
+    head.append(el("div", "vbar", el("div", "vbar-progress", el("div", "vbar-line", el("span", null, progressText(st))), progressBar(st)), action));
   }
   return head;
 }
@@ -435,11 +562,12 @@ function viewHead() {
 function refreshHead() {
   if (S.renaming) return;
   const old = $("#vhead");
-  if (old) old.replaceWith(viewHead());
+  if (old && S.view.type !== "organize") old.replaceWith(viewHead());
 }
 
-function startRename() {
-  const c = S.view.col;
+// Renames in place: `row` is the element holding the title.
+function startRename(c, row) {
+  closeMenu();
   S.renaming = true;
   const input = el("input", "rename-input");
   input.type = "text";
@@ -449,7 +577,10 @@ function startRename() {
   input.setAttribute("aria-label", "Name for this collection");
   const saveBtn = el("button", "btn primary small", "Save");
   const cancelBtn = el("button", "btn ghost small", "Cancel");
-  const done = () => { S.renaming = false; refreshHead(); };
+  const done = () => {
+    S.renaming = false;
+    if (S.view.type === "organize") refreshOrganize(); else refreshHead();
+  };
   const commit = async () => {
     const name = input.value.trim();
     if (name === colName(c)) return done();
@@ -465,42 +596,85 @@ function startRename() {
   };
   input.onkeydown = (e) => {
     if (e.key === "Enter") commit();
-    else if (e.key === "Escape") done();
+    else if (e.key === "Escape") { e.stopPropagation(); done(); }
   };
   saveBtn.onclick = commit;
   cancelBtn.onclick = done;
-  $("#vhead .title-row").replaceChildren(input, saveBtn, cancelBtn);
+  row.replaceChildren(input, saveBtn, cancelBtn);
   input.focus();
   input.select();
+}
+
+/* ---------- sticky progress under the top bar ---------- */
+
+const headObserver = new IntersectionObserver((entries) => {
+  S.headAway = !entries[entries.length - 1].isIntersecting;
+  paintSubbar();
+}, { rootMargin: "-60px 0px 0px 0px" });
+
+function watchHead() {
+  headObserver.disconnect();
+  S.headAway = false;
+  paintSubbar();
+  if (hasGroups()) headObserver.observe($("#vhead"));
+}
+
+function paintSubbar() {
+  const bar = $("#subbar");
+  const show = S.headAway && hasGroups();
+  bar.hidden = !show;
+  document.body.classList.toggle("has-subbar", show);
+  if (!show) return;
+  const v = S.view;
+  const st = v.type === "collection" ? S.stats.get(v.col.id) : progress(v.groups);
+  let action;
+  if (st.left) action = actionButton("Next group", () => focusGroup(firstUnreviewed(), "start"));
+  else {
+    const next = nextCollection(v.col);
+    action = next ? actionButton("Next: " + colTitle(next), () => go(next.id), true) : linkButton("Finish", "finish", "primary");
+  }
+  action.classList.add("small");
+  const title = el("button", "subbar-title", v.col ? el("span", "kind-ico " + v.col.kind, icon(v.col.kind, 14)) : null, el("span", "subbar-name", v.title));
+  title.title = "Back to the top";
+  title.onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  bar.replaceChildren(title,
+    el("span", "subbar-progress", el("span", null, st.groups ? `${st.done.toLocaleString()} of ${st.groups.toLocaleString()}` : ""), progressBar(st)),
+    action);
 }
 
 /* ---------- fixing collections: merge, split, not a trip, folder ---------- */
 
 const colOfPhoto = (pid) => S.photos[pid] && S.colById[S.photos[pid].collection];
 
-function collectionTools(c) {
-  const tools = el("div", "col-tools");
-  const tool = (ico, label, title, onClick) => {
-    const b = el("button", "btn ghost small", icon(ico, 14), label);
-    b.title = title;
-    b.onclick = onClick;
-    tools.append(b);
-  };
-  tool("merge", "Merge…", "Join this with other trips, events or months", () => openMerge(c));
-  if (c.parts > 1) tool("split", "Split", `Undo the merge: back to the ${c.parts} collections it was made of`,
-    () => editCollections("split", [c.members[0]], "Split back into the original collections."));
-  if (NOT_KIND[c.kind]) tool("x", NOT_KIND[c.kind], "Its photos go back to the everyday month they belong to",
-    () => editCollections("dissolve", [c.members[0]]));
-  return tools;
+function collectionMenu(c) {
+  return [
+    { icon: "merge", label: "Merge with…", onClick: () => openMerge(c) },
+    c.parts > 1 && { icon: "split", label: `Split back into ${c.parts}`, onClick: () => splitCollection(c) },
+    NOT_KIND[c.kind] && { icon: "x", label: NOT_KIND[c.kind], onClick: () => dissolveCollection(c) },
+  ];
 }
+
+const splitCollection = (c) => editCollections("split", [c.members[0]], "Split back into the original collections.");
+const dissolveCollection = (c) => editCollections("dissolve", [c.members[0]]);
+const mergeCollections = (cols) => editCollections("merge", cols.map((o) => o.members[0]), `Merged ${plural(cols.length, "collection")} into one.`);
 
 function foldedNote(f) {
   const restore = el("button", "btn small", icon("undo", 14), "Restore");
   restore.onclick = () => editCollections("restore", f.anchors, "Restored as " + COLLECTION_KIND[f.kind].toLowerCase() + ".");
-  return el("div", "note",
+  return el("div", "folded",
     el("span", null, `Includes ${plural(f.photos, "photo")} from `, el("b", null, defaultTitle(f)),
       `, which you marked as ${NOT_KIND[f.kind].replace("Not ", "not ")}.`),
     restore);
+}
+
+// One note, or a single line that opens to the list when several were folded in.
+function foldedNotes(list) {
+  if (list.length === 1) return el("div", "note", foldedNote(list[0]));
+  const n = list.reduce((sum, f) => sum + f.photos, 0);
+  const box = el("details", "note");
+  box.append(el("summary", null, icon("chev", 14), `Includes ${plural(n, "photo")} from ${list.length} trips or events you marked as not one`),
+    ...list.map(foldedNote));
+  return box;
 }
 
 function folderPlan(c) {
@@ -512,7 +686,7 @@ function folderPlan(c) {
   return { toFile, filed };
 }
 
-function folderRow(c) {
+function folderSwitch(c, onChange, label) {
   const input = el("input");
   input.type = "checkbox";
   input.setAttribute("role", "switch");
@@ -520,33 +694,56 @@ function folderRow(c) {
   input.onchange = () => {
     c.folderOn = input.checked;
     save("/api/folder", { id: c.members[0], on: c.folderOn });
-    refreshCounts();
+    onChange();
   };
-  const { toFile, filed } = folderPlan(c);
-  const where = el("code", null, `${baseName(S.root)}/${c.folder}/`);
-  let hint;
-  if (!c.folderOn) hint = el("span", null, "Kept photos stay where they are.");
-  else if (toFile) hint = el("span", null, `${plural(toFile, "kept photo")} will move to `, where, " when you click Move.");
-  else hint = el("span", null, "Nothing left to move to ", where, ".");
-  if (filed) hint.append(` ${plural(filed, "photo")} ${filed === 1 ? "is" : "are"} already there.`);
-  return el("div", "folder-row" + (c.folderOn ? " on" : ""),
-    el("label", "switch", input, el("span", "track", el("i")), el("span", "switch-label", icon("folder", 15), "Make a folder after cleanup")),
-    el("span", "folder-hint", hint));
+  const sw = el("label", "switch", input, el("span", "track", el("i")));
+  if (label) sw.append(el("span", "switch-label", label));
+  else input.setAttribute("aria-label", "Make a folder for " + colTitle(c));
+  return sw;
 }
 
-// Collection edits regroup on the server, which renumbers collections: reload, then open the result.
+function folderHint(c) {
+  const { toFile, filed } = folderPlan(c);
+  const where = el("code", null, `${c.folder}/`);
+  let hint;
+  if (!c.folderOn) hint = el("span", null, "Kept photos stay where they are.");
+  else if (toFile) hint = el("span", null, `${plural(toFile, "kept photo")} will move to `, where, " when you finish.");
+  else hint = el("span", null, "Nothing left to move to ", where, ".");
+  if (filed) hint.append(` ${plural(filed, "photo")} ${filed === 1 ? "is" : "are"} already there.`);
+  return hint;
+}
+
+function folderLine(c) {
+  return el("div", "folder-line" + (c.folderOn ? " on" : ""),
+    folderSwitch(c, () => { refreshCounts(); }, el("span", "switch-text", icon("folder", 15), "Make a folder after cleanup")),
+    el("span", "folder-hint", folderHint(c)));
+}
+
+// Collection edits regroup on the server, which renumbers collections: reload, then show the result.
 async function editCollections(op, ids, message) {
+  closeMenu();
   try {
     await S.saving;
     const r = await post("/api/collections", { op, ids });
     if (S.lb) closeLightbox();
+    S.colSel.clear();
     await load();
     const c = colOfPhoto(r.anchor);
-    if (c) go(c.id);
+    if (S.view.type === "organize") flashRow(c);
+    else if (c) go(c.id);
     toast(op === "dissolve" ? `Moved into ${c ? colTitle(c) : "everyday"}. You can restore it from there.` : message);
   } catch (e) {
     toast("That did not work (" + e.message + "). Is the server still running?", true);
   }
+}
+
+function pickRow(o, tail) {
+  return [
+    thumb(colCover(o), "pick-cover"),
+    el("span", "pick-text", el("span", "pick-title", colTitle(o)),
+      el("span", "pick-sub", [COLLECTION_KIND[o.kind], fmtRange(o, true), plural(o.members.length, "photo")].join(" · "))),
+    tail,
+  ];
 }
 
 function openMerge(c) {
@@ -564,20 +761,232 @@ function openMerge(c) {
     const box = el("input");
     box.type = "checkbox";
     box.onchange = () => { if (box.checked) picked.add(o); else picked.delete(o); paint(); };
-    return el("label", "pick", box,
-      el("span", "kind-ico " + o.kind, icon(o.kind, 15)),
-      el("span", "pick-text", el("span", "pick-title", colTitle(o)),
-        el("span", "pick-sub", [fmtRange(o, true), plural(o.members.length, "photo")].join(" · "))));
+    return el("label", "pick", box, ...pickRow(o));
   }));
   $("#merge-title").textContent = "Merge " + colTitle(c) + " with…";
   mergeBtn.onclick = () => {
     closeDialog(dlg);
-    editCollections("merge", [c, ...picked].map((o) => o.members[0]), "Merged.");
+    mergeCollections([c, ...picked]);
   };
   paint();
   openDialog(dlg);
   list.scrollTop = 0;
 }
+
+/* ---------- organize ---------- */
+
+// Calendar day of a timestamp: capture times are wall-clock values stored as UTC, file times are instants.
+const dayIndex = (sec, known) => Math.floor((known ? sec : sec - new Date(sec * 1000).getTimezoneOffset() * 60) / 86400);
+
+// Trips, day trips and events that start at most two calendar days after the previous one ends (one
+// day at home in between) may well be one. Overlaps are left out: they come from a long merged
+// collection, not from a trip split in two; a few hours are allowed for clocks in another time zone.
+function mergeHints() {
+  const hints = new Map();
+  const away = S.collections.filter((c) => c.kind !== "everyday").sort((a, b) => a.start - b.start);
+  for (let i = 1; i < away.length; i++) {
+    const a = away[i - 1], b = away[i];
+    const days = dayIndex(b.start, b.timeKnown) - dayIndex(a.end, a.timeKnown);
+    if (b.start - a.end > -6 * 3600 && days <= 2) hints.set(b.id, { other: a, days: Math.max(0, days) });
+  }
+  return hints;
+}
+
+function gapText(h) {
+  const t = colTitle(h.other);
+  return h.days === 0 ? "Same day as " + t : h.days === 1 ? "The day after " + t : "2 days after " + t;
+}
+
+// The thumbnails on a row: favorites and best shots first, shown in time order.
+function stripPhotos(c, n) {
+  const rank = (id) => (eff(id) === "fav" ? 4 : eff(id) === "keep" ? 1 : 0) + S.photos[id].score;
+  return c.members.filter(live).sort((a, b) => rank(b) - rank(a)).slice(0, n)
+    .sort((a, b) => S.photos[a].time - S.photos[b].time);
+}
+
+const ratio = (id) => {
+  const p = S.photos[id];
+  return String(Math.min(2, Math.max(0.5, p.w && p.h ? p.w / p.h : 1)));
+};
+
+function organizeBody() {
+  const wrap = el("div", "organize");
+  wrap.id = "organize";
+  if (!S.collections.length) {
+    const all = el("a", "btn", "Open all photos");
+    all.href = "#all";
+    wrap.append(el("div", "empty", el("p", null, "No trips or events were found in this folder."), all));
+    return wrap;
+  }
+  const hints = mergeHints();
+  let year = null, list = null;
+  for (const c of S.newestFirst) {
+    if (colYear(c) !== year) {
+      year = colYear(c);
+      list = el("div", "olist");
+      wrap.append(el("h3", "section", year), list);
+    }
+    list.append(orgRow(c, hints.get(c.id)));
+  }
+  return wrap;
+}
+
+function refreshOrganize() {
+  const old = $("#organize");
+  if (old) old.replaceWith(organizeBody());
+}
+
+function orgRow(c, hint) {
+  const st = S.stats.get(c.id);
+  const row = el("div", "orow " + c.kind + (S.colSel.has(c.id) ? " selected" : ""));
+  row.dataset.col = c.id;
+
+  const box = el("input");
+  box.type = "checkbox";
+  box.checked = S.colSel.has(c.id);
+  box.setAttribute("aria-label", "Select " + colTitle(c));
+  box.onchange = () => toggleColSel(c, box.checked);
+
+  const title = el("a", "orow-title", colTitle(c));
+  title.href = "#" + c.id;
+  const meta = [colMeta(c), plural(st.photos, "photo")];
+  if (st.groups) meta.push(colStatus(st));
+  const text = el("div", "orow-text", el("div", "orow-head", title), el("div", "orow-meta", meta.join(" · ")));
+  if (hint) {
+    const m = el("button", "link-btn", "Merge them");
+    m.onclick = () => mergeCollections([c, hint.other]);
+    text.append(el("div", "orow-hint", icon("merge", 13), el("span", null, gapText(hint)), m));
+  }
+  for (const f of c.folded || []) {
+    const r = el("button", "link-btn", "Restore");
+    r.onclick = () => editCollections("restore", f.anchors, "Restored as " + COLLECTION_KIND[f.kind].toLowerCase() + ".");
+    const what = el("span", null, `Includes ${defaultTitle(f)} · ${plural(f.photos, "photo")}`);
+    what.title = `You marked ${defaultTitle(f)} as ${NOT_KIND[f.kind].replace("Not ", "not ")}; its photos are here now.`;
+    text.append(el("div", "orow-folded", icon("undo", 13), what, r));
+  }
+
+  const strip = el("a", "ostrip");
+  strip.href = "#" + c.id;
+  strip.setAttribute("aria-label", "Open " + colTitle(c));
+  for (const id of stripPhotos(c, 14)) {
+    const img = thumb(id);
+    img.style.setProperty("--r", ratio(id));
+    strip.append(img);
+  }
+
+  const actions = el("div", "orow-actions");
+  const action = (ico, label, title, onClick) => {
+    const b = el("button", "btn ghost small", icon(ico, 14), label);
+    b.title = title;
+    b.onclick = onClick;
+    actions.append(b);
+  };
+  action("pencil", "Rename", "Give it a name", () => startRename(c, text.querySelector(".orow-head")));
+  if (c.parts > 1) action("split", "Split", `Undo the merge: back to the ${c.parts} collections it was made of`, () => splitCollection(c));
+  if (NOT_KIND[c.kind]) action("x", NOT_KIND[c.kind], "Its photos go back to the everyday month they belong to", () => dissolveCollection(c));
+
+  row.append(el("label", "orow-check", box), el("span", "kind-ico " + c.kind, icon(c.kind, 16)), text, strip, actions);
+  return row;
+}
+
+function toggleColSel(c, on) {
+  if (on) S.colSel.add(c.id); else S.colSel.delete(c.id);
+  const row = document.querySelector(`.orow[data-col="${c.id}"]`);
+  if (row) {
+    row.classList.toggle("selected", on);
+    row.querySelector(".orow-check input").checked = on;
+  }
+  paintSelection();
+}
+
+function clearColSel() {
+  for (const id of [...S.colSel]) toggleColSel(S.colById[id], false);
+}
+
+function flashRow(c) {
+  const row = c && document.querySelector(`.orow[data-col="${c.id}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  row.classList.add("flash");
+  setTimeout(() => row.classList.remove("flash"), 1600);
+}
+
+/* ---------- selecting photos and moving them to another collection ---------- */
+
+function toggleSelect(id, range) {
+  const flat = S.view.flat;
+  if (range && S.selFrom && flat.includes(S.selFrom)) {
+    const [a, b] = [flat.indexOf(S.selFrom), flat.indexOf(id)].sort((x, y) => x - y);
+    return selectIds(flat.slice(a, b + 1), true);
+  }
+  S.selFrom = id;
+  selectIds([id], !S.sel.has(id));
+}
+
+function selectIds(ids, on) {
+  for (const id of ids) if (on) S.sel.add(id); else S.sel.delete(id);
+  for (const id of ids) for (const t of document.querySelectorAll(`.tile[data-id="${id}"]`)) t.classList.toggle("selected", on);
+  for (const gid of new Set(ids.map((id) => S.photos[id].group).filter(Boolean))) refreshGroup(gid);
+  paintSelection();
+}
+
+function clearSelection() {
+  selectIds([...S.sel], false);
+  S.selFrom = null;
+}
+
+// The bottom bar: selected photos (Move to…) or, on Organize, selected collections (Merge).
+function paintSelection() {
+  const org = !!S.view && S.view.type === "organize";
+  const n = org ? S.colSel.size : S.sel.size;
+  document.body.classList.toggle("selecting", !org && n > 0);
+  document.body.classList.toggle("bar-up", n > 0);
+  $("#selbar").hidden = !n;
+  $("#sel-count").textContent = plural(n, org ? "collection" : "photo") + " selected";
+  const go = $("#sel-go");
+  go.textContent = org ? (n > 1 ? `Merge ${n}` : "Pick another to merge") : "Move to…";
+  go.disabled = org && n < 2;
+}
+
+function openMoveTo() {
+  const ids = [...S.sel];
+  if (!ids.length) return;
+  const at = Math.min(...ids.map((id) => S.photos[id].time));
+  const targets = S.collections.filter((c) => !ids.every((id) => S.photos[id].collection === c.id))
+    .sort((a, b) => Math.abs(a.start - at) - Math.abs(b.start - at));
+  $("#moveto-title").textContent = `Move ${plural(ids.length, "photo")} to…`;
+  $("#moveto-list").replaceChildren(...targets.map((c) => {
+    const b = el("button", "pick", ...pickRow(c, icon("arrow", 15)));
+    b.onclick = () => { closeDialog($("#moveto")); moveSelected(ids, c); };
+    return b;
+  }));
+  openDialog($("#moveto"));
+  $("#moveto-list").scrollTop = 0;
+}
+
+async function moveSelected(ids, dest) {
+  const moving = new Set(ids);
+  const v = S.view;
+  // Stay on the collection you were looking at (its id can change when regrouping).
+  const stay = v.type === "collection" ? v.col.members.find((id) => !moving.has(id)) : null;
+  const destTitle = colTitle(dest);
+  try {
+    await S.saving;
+    await post("/api/collections", { op: "move", ids, into: dest.members[0] });
+    clearSelection();
+    await load();
+    if (v.type === "collection") {
+      const c = colOfPhoto(stay || ids[0]);
+      if (c) go(c.id);
+    }
+    toast(`Moved ${plural(ids.length, "photo")} to ${destTitle}.`);
+  } catch (e) {
+    toast("That did not work (" + e.message + "). Is the server still running?", true);
+  }
+}
+
+$("#sel-go").onclick = () => (S.view.type === "organize" ? mergeCollections(S.newestFirst.filter((c) => S.colSel.has(c.id))) : openMoveTo());
+$("#sel-clear").onclick = () => (S.view.type === "organize" ? clearColSel() : clearSelection());
 
 /* ---------- navigator ---------- */
 
@@ -593,18 +1002,20 @@ function renderNav() {
     return a;
   };
 
-  const overview = link("overview");
-  overview.append(el("span", "nav-ico", icon("overview", 16)), el("span", "nav-title", "Overview"));
-  nav.append(overview);
-
-  nav.append(el("div", "nav-label", "Library"));
-  for (const lib of LIBRARY) {
-    const a = link(lib.id, "lib");
+  // Library views are a side trip from the main flow: one folded line at the top.
+  const lib = el("details", "nav-lib");
+  lib.id = "nav-lib";
+  lib.open = localStorage.getItem("libOpen") === "1";
+  lib.ontoggle = () => localStorage.setItem("libOpen", lib.open ? "1" : "0");
+  lib.append(el("summary", "nav-label", icon("chev", 13), "Library"));
+  for (const v of LIBRARY) {
+    const a = link(v.id, "lib");
     const count = el("span", "nav-count");
-    a.append(el("span", "nav-title", lib.label), count);
-    S.navRefs.set(lib.id, { count });
-    nav.append(a);
+    a.append(el("span", "nav-title", v.label), count);
+    S.navRefs.set(v.id, { count });
+    lib.append(a);
   }
+  nav.append(lib);
 
   let year = null;
   for (const c of S.newestFirst) {
@@ -636,124 +1047,32 @@ function paintNav() {
   }
   const t = S.total;
   $("#totals").replaceChildren(
-    el("div", "totals-row",
-      el("span", null, plural(t.photos, "photo")),
-      el("span", "fav", icon("star", 12), t.fav.toLocaleString()),
-      el("span", "remove", icon("x", 12), t.remove.toLocaleString() + (t.remove ? " · " + fmtBytes(t.bytes) : ""))),
+    el("div", "totals-row", countsLine(t)),
     el("div", "totals-progress",
-      el("span", null, t.groups ? `${t.done.toLocaleString()} of ${plural(t.groups, "group")} reviewed` : "No groups to review"),
+      el("span", null, t.groups ? progressText(t) : "No groups to review"),
       t.groups ? progressBar(t) : null));
 }
 
-function paintCrumbs() {
-  const v = S.view;
-  const crumbs = $("#crumbs");
-  if (v.type === "overview") return crumbs.replaceChildren(el("span", "here", "Overview"));
-  const home = el("a", null, "Overview");
-  home.href = "#overview";
-  crumbs.replaceChildren(home, el("span", "sep", "/"), el("span", "here", v.title));
-}
-
-// What the Move button will do: marked photos to _to_remove, kept photos into their collection folders.
+// What Move will do: marked photos to _to_remove, kept photos into their collection folders.
 function movePlan() {
   const folders = S.collections.filter((c) => c.folderOn).map((c) => ({ c, n: folderPlan(c).toFile })).filter((f) => f.n);
   return { remove: S.total.remove, bytes: S.total.bytes, folders, toFile: folders.reduce((n, f) => n + f.n, 0) };
 }
 
-function paintApply() {
-  const m = movePlan();
-  const n = m.remove + m.toFile;
-  const apply = $("#apply");
-  apply.replaceChildren(...(n
-    ? ["Move " + n.toLocaleString(), el("span", "long", m.toFile ? (n === 1 ? "photo" : "photos") : n === 1 ? "marked photo" : "marked photos")]
-    : ["Nothing to move"]));
-  apply.disabled = !n;
-  const parts = [];
-  if (m.remove) parts.push(`${plural(m.remove, "marked photo")} (${fmtBytes(m.bytes)}) into _to_remove`);
-  if (m.toFile) parts.push(`${plural(m.toFile, "kept photo")} into ${plural(m.folders.length, "folder")}`);
-  apply.title = n ? "Move " + parts.join(", and ") + ". Nothing is deleted." : "";
-  $("#undo").hidden = S.moved.size + Object.keys(S.filed).length === 0;
-}
-
 function refreshCounts() {
   recount();
   paintNav();
-  paintApply();
+  paintSteps();
   refreshHead();
-}
-
-/* ---------- overview ---------- */
-
-function overviewBody() {
-  const wrap = el("div", "overview");
-  if (!S.collections.length) {
-    const all = el("a", "btn", "Open all photos");
-    all.href = "#all";
-    wrap.append(el("div", "empty", el("p", null, "No trips or events were found in this folder."), all));
-    return wrap;
-  }
-
-  const next = nextCollection();
-  if (next) {
-    const st = S.stats.get(next.id);
-    const a = el("a", "upnext");
-    a.href = "#" + next.id;
-    a.append(
-      thumb(colCover(next), "upnext-cover"),
-      el("div", "upnext-text",
-        el("span", "upnext-label", st.done ? "Continue where you left off" : "Up next"),
-        el("span", "upnext-title", colTitle(next)),
-        el("span", "upnext-sub", colMeta(next) + " · " + colStatus(st))),
-      el("span", "btn primary", st.done ? "Continue" : "Start reviewing", icon("arrow", 15)));
-    wrap.append(a);
-  } else if (S.total.groups) {
-    wrap.append(el("div", "alldone", icon("check", 18),
-      el("span", null, S.total.remove
-        ? "Every group is reviewed. Move the marked photos when you are ready."
-        : "Every group is reviewed and nothing is marked for removal.")));
-  }
-
-  let year = null, grid = null;
-  for (const c of S.newestFirst) {
-    if (colYear(c) !== year) {
-      year = colYear(c);
-      grid = el("div", "cards");
-      wrap.append(el("h3", "section", year), grid);
-    }
-    grid.append(collectionCard(c));
-  }
-  return wrap;
-}
-
-function thumb(id, cls) {
-  const img = el("img", cls);
-  img.loading = "lazy";
-  img.decoding = "async";
-  img.alt = "";
-  if (id) img.src = "/thumb/" + id;
-  return img;
-}
-
-function collectionCard(c) {
-  const st = S.stats.get(c.id);
-  const a = el("a", "card-col" + (st.groups && !st.left ? " done" : ""));
-  a.href = "#" + c.id;
-  const counts = [plural(st.photos, "photo")];
-  if (st.fav) counts.push(plural(st.fav, "favorite"));
-  if (st.remove) counts.push(`${st.remove.toLocaleString()} to remove`);
-  a.append(
-    el("div", "card-cover", thumb(colCover(c)), el("span", "kind-tag " + c.kind, icon(c.kind, 13), COLLECTION_KIND[c.kind])),
-    el("div", "card-body",
-      el("span", "card-title", colTitle(c)),
-      el("span", "card-meta", colMeta(c)),
-      el("span", "card-counts", counts.join(" · ")),
-      el("span", "card-progress",
-        st.groups ? progressBar(st) : null,
-        el("span", st.left ? "todo" : null, st.groups ? (st.left ? colStatus(st) : "All groups reviewed") : "No groups to review"))));
-  return a;
+  refreshEnd();
+  paintSubbar();
+  if (S.view && S.view.type === "finish") refreshFinish();
 }
 
 /* ---------- groups + tiles ---------- */
+
+// A reviewed group folds into one short row unless you open it again.
+const collapsed = (g) => groupDone(g) && !S.expanded.has(g.id);
 
 function firstUnreviewed(from = 0) {
   const gs = S.view.groups;
@@ -771,22 +1090,36 @@ function updateNext() {
   if (old !== S.nextId) for (const gid of [old, S.nextId]) if (gid) refreshGroup(gid);
 }
 
-function groupCard(g) {
+function groupCard(item) {
+  const g = item.group;
   const card = el("section", "group");
   card.dataset.group = g.id;
-  paintGroup(card, g);
   const why = groupWhy(g);
   card.append(groupHead(g));
   if (why) card.append(el("div", "why", el("b", null, "Haiku"), why));
   const tiles = el("div", "tiles");
-  for (const id of g.members) tiles.append(tile(id));
-  card.append(tiles);
+  for (const id of item.order) tiles.append(tile(id));
+  const keepers = el("button", "keepers");
+  keepers.title = "Show the whole group";
+  card.append(tiles, keepers);
+  paintGroup(card, g);
   return card;
 }
 
 function paintGroup(card, g) {
+  const fold = collapsed(g);
   card.classList.toggle("done", groupDone(g));
+  card.classList.toggle("collapsed", fold);
   card.classList.toggle("next", g.id === S.nextId);
+  const keepers = card.querySelector(".keepers");
+  if (fold) {
+    const order = (S.view.itemOf.get(g.members[0]) || {}).order || g.members;
+    keepers.replaceChildren(...order.filter((id) => live(id) && eff(id) !== "remove").map((id) => {
+      const img = thumb(id, eff(id) === "fav" ? "fav" : null);
+      img.style.setProperty("--r", ratio(id));
+      return img;
+    }));
+  } else keepers.replaceChildren();
 }
 
 function refreshGroup(gid) {
@@ -794,6 +1127,11 @@ function refreshGroup(gid) {
   if (!card) return;
   paintGroup(card, S.groupById[gid]);
   card.querySelector(".ghead").replaceWith(groupHead(S.groupById[gid]));
+}
+
+function expandGroup(g, on) {
+  if (on) S.expanded.add(g.id); else S.expanded.delete(g.id);
+  refreshGroup(g.id);
 }
 
 function groupWhy(g) {
@@ -806,8 +1144,10 @@ function groupHead(g) {
   const t = tally(g.members);
   const movedCount = g.members.filter((id) => !live(id)).length;
   const done = groupDone(g);
+  const kept = t.photos - t.remove;
 
   const info = el("div", "ginfo");
+  if (collapsed(g)) info.append(el("span", "reviewed-mark", icon("check", 14), "Reviewed"));
   info.append(el("span", "title", plural(g.members.length, "photo")), el("span", "meta", fmtTime(S.photos[g.members[0]])));
   const c = S.view.type !== "collection" && S.colById[g.collection];
   if (c) {
@@ -815,27 +1155,46 @@ function groupHead(g) {
     a.href = "#" + c.id;
     info.append(a);
   }
+  if (collapsed(g)) {
+    info.append(el("span", "outcome", `Kept ${kept} of ${t.photos}`));
+    const show = el("button", "btn small ghost", "Show");
+    show.title = "Open this group again";
+    show.onclick = () => expandGroup(g, true);
+    head.append(info, el("div", "gactions", show));
+    return head;
+  }
   if (g.id === S.nextId) info.append(el("span", "badge next", "Next up"));
   info.append(el("span", "badge", GROUP_KIND[g.kind] || g.kind));
   if (g.you) info.append(el("span", "badge you", "You"));
   if (g.members.some((id) => S.haiku[id])) {
-    const b = el("span", "badge ai", "Reviewed by Haiku");
-    b.title = groupWhy(g);
+    const b = el("span", "badge ai", "Haiku");
+    b.title = "Reviewed by Haiku: " + groupWhy(g);
     info.append(b);
   } else if (g.close) info.append(el("span", "badge close", "Close call"));
-  if (g.members.some((id) => S.decisions[id])) info.append(el("span", "badge edited", el("i", "dot"), "Edited by you"));
+  if (g.members.some((id) => S.decisions[id])) info.append(el("span", "badge edited", el("i", "dot"), "Edited"));
   if (movedCount) info.append(el("span", "badge", `${movedCount} moved`));
-  info.append(el("span", "outcome", `Keeping ${t.photos - t.remove}, removing ${t.remove}`));
+  info.append(el("span", "outcome", `Keeping ${kept} of ${t.photos}`));
 
-  const keepAll = el("button", "btn small", "Keep all");
-  keepAll.onclick = () => setStates(Object.fromEntries(g.members.map((id) => [id, eff(id) === "fav" ? "fav" : "keep"])));
-  const reset = el("button", "btn small ghost", "Reset to suggestion");
-  reset.onclick = () => setStates(Object.fromEntries(g.members.map((id) => [id, null])));
+  const all = g.members.every((id) => S.sel.has(id));
+  const more = moreButton("More actions for this group", () => [
+    { icon: "check", label: "Keep all", onClick: () => setStates(Object.fromEntries(g.members.map((id) => [id, eff(id) === "fav" ? "fav" : "keep"]))) },
+    { icon: "undo", label: "Reset to suggestion", onClick: () => setStates(Object.fromEntries(g.members.map((id) => [id, null]))) },
+    { icon: "arrow", label: all ? "Deselect the group" : "Select the group, to move it", onClick: () => selectIds(g.members, !all) },
+  ]);
+  const actions = el("div", "gactions", more);
+  if (done) {
+    const hide = el("button", "btn small ghost", "Hide");
+    hide.title = "Fold this reviewed group away";
+    hide.onclick = () => expandGroup(g, false);
+    actions.append(hide);
+  }
   const review = el("button", "btn small review" + (done ? " on" : ""), icon("check", 13), done ? "Reviewed" : "Mark reviewed");
-  review.title = done ? "Click to mark as not reviewed" : "Mark this group as reviewed (D)";
+  if (!done) review.append(el("kbd", null, "D"));
+  review.title = done ? "Click to mark as not reviewed" : "Mark this group as reviewed and fold it away (D)";
   review.setAttribute("aria-pressed", String(done));
   review.onclick = () => setReviewed(g, !done);
-  head.append(info, el("div", "gactions", keepAll, reset, review));
+  actions.append(review);
+  head.append(info, actions);
   return head;
 }
 
@@ -845,7 +1204,7 @@ function tile(id) {
   t.dataset.id = id;
   t.title = p.reason ? `${p.rel}\n${p.reason}` : p.rel;
   t.classList.toggle("is-you", !!p.me);
-  t.style.setProperty("--r", String(Math.min(2, Math.max(0.5, p.w && p.h ? p.w / p.h : 1))));
+  t.style.setProperty("--r", ratio(id));
   const img = thumb(id);
   img.alt = baseName(p.rel);
   const mine = el("span", "mine");
@@ -859,7 +1218,9 @@ function tile(id) {
     b.tabIndex = -1;  // the keyboard works through the highlighted photo instead
     ctrl.append(b);
   }
-  t.append(img, el("span", "flag"), mine, el("div", "info", el("span", null, fmtTime(p, false)), p.me ? el("span", "you", "You") : el("span", null, faceText(p))), ctrl);
+  const pick = el("span", "pick-box", icon("check", 13));
+  pick.title = "Select (S). Shift-click selects a range.";
+  t.append(img, el("span", "flag"), mine, pick, el("div", "info", el("span", null, fmtTime(p, false)), p.me ? el("span", "you", "You") : el("span", null, faceText(p))), ctrl);
   paintTile(t, id);
   return t;
 }
@@ -873,7 +1234,9 @@ function paintTile(t, id) {
   const flag = t.querySelector(".flag");
   if (moved) flag.replaceChildren("Moved");
   else flag.replaceChildren(icon(STATE_ICON[s], 12), el("span", "flag-text", STATE_LABEL[s]));
+  flag.title = moved ? "Moved to _to_remove" : STATE_LABEL[s];
   t.querySelector(".mine").hidden = !S.decisions[id];
+  t.classList.toggle("selected", S.sel.has(id));
   for (const b of t.querySelectorAll(".ctrl button")) b.classList.toggle("on", b.dataset.state === s);
 }
 
@@ -885,9 +1248,150 @@ function refreshPhoto(id) {
   else if (S.lb) paintStrip();
 }
 
+/* ---------- end of a collection ---------- */
+
+function endPanel() {
+  const c = S.view.col, st = S.stats.get(c.id);
+  const next = nextCollection(c);
+  const p = el("div", "endpanel");
+  p.id = "endpanel";
+  if (st.left) {
+    p.append(icon("check", 20), el("div", "end-text",
+      el("b", null, `${plural(st.left, "group")} still to review`),
+      el("span", null, "Reviewed groups fold away, so what is left stays near the top.")),
+      actionButton("Review next group", () => focusGroup(firstUnreviewed(), "start"), true));
+    return p;
+  }
+  p.classList.add("done");
+  const what = !st.groups ? "Nothing to review here" : st.groups === 1 ? "The group is reviewed" : `All ${plural(st.groups, "group")} are reviewed`;
+  p.append(icon("check", 20), el("div", "end-text",
+    el("b", null, what),
+    el("span", null, next ? "Up next: " + colTitle(next) + " · " + colStatus(S.stats.get(next.id)) : "Every trip, event and month is reviewed. Finish when you are ready.")),
+    next ? actionButton("Next: " + colTitle(next), () => go(next.id), true) : linkButton("Finish", "finish", "primary"));
+  return p;
+}
+
+function refreshEnd() {
+  const old = $("#endpanel");
+  if (old) old.replaceWith(endPanel());
+}
+
+function goNextCollection() {
+  const next = nextCollection(S.view.col);
+  if (next) go(next.id);
+  else toast("Everything is reviewed. Finish when you are ready.");
+}
+
+/* ---------- finish ---------- */
+
+function finishBody() {
+  const wrap = el("div", "finish");
+  wrap.id = "finish";
+  const m = movePlan(), t = S.total;
+  const n = m.remove + m.toFile;
+  const done = S.moved.size + Object.keys(S.filed).length;
+
+  const open = S.newestFirst.filter((c) => S.stats.get(c.id).left);
+  if (open.length) {
+    wrap.append(el("div", "fnote warn", icon("warn", 16),
+      el("span", null, `${plural(t.left, "group")} in ${open.length === 1 ? "1 collection" : open.length + " collections"} ${t.left === 1 ? "is" : "are"} not reviewed yet. Their suggestions are used as they are.`),
+      linkButton("Keep reviewing", "review", "small")));
+  }
+
+  // What goes to _to_remove.
+  const see = el("a", "btn small", "See them", icon("arrow", 14));
+  see.href = "#remove";
+  wrap.append(el("section", "fcard",
+    el("div", "fcard-head",
+      el("span", "fcard-ico remove", icon("trash", 18)),
+      el("div", "fcard-text",
+        el("h3", null, m.remove ? `${plural(m.remove, "photo")} to remove · ${fmtBytes(m.bytes)}`
+          : S.moved.size ? `All marked photos are in _to_remove (${S.moved.size.toLocaleString()})` : "Nothing marked for removal"),
+        el("p", null, "Moved into ", el("code", null, `${baseName(S.root)}/_to_remove/`), ", keeping their subfolders. Delete that folder yourself once you are sure.")),
+      m.remove ? see : null)));
+
+  // Which collections get a folder of their own.
+  const rows = S.newestFirst.map((c) => {
+    const { toFile, filed } = folderPlan(c);
+    const sub = c.folderOn
+      ? (toFile ? `${plural(toFile, "kept photo")} into ` : "Nothing left to move into ")
+      : toFile ? `${plural(toFile, "kept photo")} ${toFile === 1 ? "stays" : "stay"} where ${toFile === 1 ? "it is" : "they are"}` : "No kept photos";
+    const subEl = el("span", "frow-sub", sub);
+    if (c.folderOn) subEl.append(el("code", null, c.folder + "/"));
+    if (filed) subEl.append(` · ${filed.toLocaleString()} already there`);
+    const title = el("a", "frow-title", colTitle(c));
+    title.href = "#" + c.id;
+    return el("div", "frow" + (c.folderOn ? " on" : ""),
+      el("span", "kind-ico " + c.kind, icon(c.kind, 15)),
+      el("span", "frow-text", title, subEl),
+      folderSwitch(c, refreshCounts));
+  });
+  const on = S.collections.filter((c) => c.folderOn).length;
+  wrap.append(el("section", "fcard",
+    el("div", "fcard-head",
+      el("span", "fcard-ico", icon("folder", 18)),
+      el("div", "fcard-text",
+        el("h3", null, m.toFile ? `${plural(m.toFile, "kept photo")} into ${plural(m.folders.length, "folder")}` : on ? "No kept photos left to file" : "Kept photos stay where they are"),
+        el("p", null, "Switch on the trips and events whose kept photos should get a folder of their own, named after the date and name."))),
+    el("div", "frows", ...rows)));
+
+  // The one button that touches files, with a confirm step right here.
+  const act = el("section", "fact");
+  if (S.finish === "move") {
+    const cancel = el("button", "btn ghost", "Cancel");
+    cancel.onclick = () => { S.finish = null; refreshFinish(); };
+    const yes = el("button", "btn danger strong", `Yes, move ${n.toLocaleString()} photos`);
+    yes.onclick = runApply;
+    act.append(el("p", "fact-text", el("b", null, "Move the photos now?"), " " + moveSentence(m) + " Nothing is deleted, and Undo puts everything back."), el("div", "fact-buttons", cancel, yes));
+    act.classList.add("confirm");
+  } else if (S.finish === "undo") {
+    const cancel = el("button", "btn ghost", "Cancel");
+    cancel.onclick = () => { S.finish = null; refreshFinish(); };
+    const yes = el("button", "btn primary", `Yes, put ${plural(done, "photo")} back`);
+    yes.onclick = runUndo;
+    act.append(el("p", "fact-text", el("b", null, "Undo every move?"), ` All ${plural(done, "moved photo")} go back where they were.`), el("div", "fact-buttons", cancel, yes));
+    act.classList.add("confirm", "soft");
+  } else if (n || !done) {
+    const go = el("button", "btn danger strong", n ? `Move ${n.toLocaleString()} photos` : "Nothing to move");
+    go.disabled = !n;
+    go.onclick = () => { S.finish = "move"; refreshFinish(); };
+    act.append(el("p", "fact-text", n ? moveSentence(m) : "Everything is where it should be."), el("div", "fact-buttons", go));
+  }
+  if (act.childNodes.length) wrap.append(act);
+
+  if (done && S.finish !== "undo") {
+    const undo = el("button", "btn", icon("undo", 14), "Undo all moves");
+    undo.onclick = () => { S.finish = "undo"; refreshFinish(); };
+    const filedN = Object.keys(S.filed).length;
+    const parts = [];
+    if (S.moved.size) parts.push(`${plural(S.moved.size, "photo")} in _to_remove`);
+    if (filedN) parts.push(`${plural(filedN, "photo")} filed into folders`);
+    wrap.append(el("div", "fnote", icon("check", 16), el("span", null, "Already moved: " + parts.join(", ") + "."), undo));
+  }
+  return wrap;
+}
+
+function moveSentence(m) {
+  const parts = [];
+  if (m.remove) parts.push(`${plural(m.remove, "photo")} marked remove go to _to_remove`);
+  if (m.toFile) parts.push(`${plural(m.toFile, "kept photo")} go into ${plural(m.folders.length, "folder")}`);
+  return parts.join(", and ") + ".";
+}
+
+function refreshFinish() {
+  const old = $("#finish");
+  if (old) old.replaceWith(finishBody());
+}
+
 /* ---------- cursor + keyboard ---------- */
 
 const tileEl = (id) => document.querySelector(`.tile[data-id="${id}"]`);
+
+// Photos of folded groups are skipped by the arrow keys and the viewer.
+function hiddenId(id) {
+  const item = S.view.itemOf.get(id);
+  return !!(item && item.group && collapsed(item.group));
+}
 
 function setCursor(id, scroll) {
   S.cursor = id;
@@ -910,8 +1414,9 @@ function markCursor() {
 
 function focusGroup(g, block = "nearest") {
   if (!g) return;
+  if (collapsed(g)) expandGroup(g, true);
   const card = ensureRendered(`.group[data-group="${g.id}"]`);
-  S.cursor = g.members[0];
+  S.cursor = S.view.itemOf.get(g.members[0]).order[0];
   markCursor();
   if (card) card.scrollIntoView({ block, behavior: "smooth" });
 }
@@ -919,9 +1424,10 @@ function focusGroup(g, block = "nearest") {
 function moveCursor(delta) {
   const flat = S.view.flat;
   if (!flat.length) return;
-  const i = flat.indexOf(S.cursor);
-  const next = i < 0 ? 0 : Math.min(flat.length - 1, Math.max(0, i + delta));
-  setCursor(flat[next], true);
+  let i = flat.indexOf(S.cursor);
+  if (i < 0) { i = -1; delta = 1; }
+  do i += delta; while (i >= 0 && i < flat.length && hiddenId(flat[i]));
+  if (i >= 0 && i < flat.length) setCursor(flat[i], true);
 }
 
 // The tile in the row above or below `t` (same day block) that sits closest horizontally.
@@ -939,12 +1445,18 @@ function rowNeighbor(t, delta) {
   return best;
 }
 
+const skipItem = (it) => it.section || it.end || (it.group && collapsed(it.group));
+
 // Up / down: between groups, and row by row through loose photos.
 function moveVertical(delta) {
   const v = S.view;
   if (!v.flat.length) return;
   const item = v.itemOf.get(S.cursor);
-  if (!item) return v.items.find((it) => it.group) ? focusGroup(v.items.find((it) => it.group).group) : setCursor(v.flat[0], true);
+  if (!item || skipItem(item)) {
+    const first = v.items.find((it) => !skipItem(it));
+    if (!first) return;
+    return first.group ? focusGroup(first.group) : setCursor(first.photo, true);
+  }
 
   let from = item.i;
   if (item.photo) {
@@ -955,7 +1467,7 @@ function moveVertical(delta) {
     if (t) from = v.itemOf.get((delta > 0 ? t.parentNode.lastElementChild : t.parentNode.firstElementChild).dataset.id).i;
   }
   let i = from + delta;
-  while (v.items[i] && v.items[i].section) i += delta;
+  while (v.items[i] && skipItem(v.items[i])) i += delta;
   const to = v.items[i];
   if (!to) return;
   if (to.group) focusGroup(to.group);
@@ -968,8 +1480,15 @@ function reviewAndAdvance() {
   const g = item.group;
   if (!groupDone(g)) setReviewed(g, true);
   const next = firstUnreviewed(S.view.groups.indexOf(g) + 1);
-  if (next) focusGroup(next, "start");
-  else toast(S.view.type === "collection" ? "All groups in this collection are reviewed." : "All groups here are reviewed.");
+  if (next) return focusGroup(next, "start");
+  if (S.view.type !== "collection") return toast("All groups here are reviewed.");
+  // Last group: show what is left of the collection, then the way on.
+  const others = ensureRendered("#others");
+  const target = others || ensureRendered("#endpanel");
+  if (target) target.scrollIntoView({ block: "start", behavior: "smooth" });
+  S.cursor = null;
+  markCursor();
+  toast(others ? "All groups reviewed. Look over the other photos, then press N for the next collection." : "All groups reviewed. Press N for the next collection.");
 }
 
 const openDialogEl = () => document.querySelector(".dialog:not([hidden])");
@@ -984,11 +1503,15 @@ const showHelp = (on) => (on ? openDialog($("#help")) : closeDialog($("#help")))
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || !S.view) return;
+  if (!$("#menu-pop").hidden) {
+    if (e.key === "Escape") { const a = S.menuAnchor; closeMenu(); if (a) a.focus(); e.preventDefault(); }
+    return;
+  }
   const dlg = openDialogEl();
   if (dlg) { if (e.key === "Escape") closeDialog(dlg); return; }
   const tag = e.target.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-  if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
+  if (tag === "INPUT" && e.target.type !== "checkbox" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if ((tag === "BUTTON" || tag === "A" || tag === "INPUT" || tag === "SUMMARY") && (e.key === "Enter" || e.key === " ")) return;
   const key = e.key.toLowerCase();
   if (S.lb) {
     if (key === "escape") closeLightbox();
@@ -999,27 +1522,37 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+  const t = S.view.type;
   if (key === "escape" && document.body.classList.contains("nav-open")) setDrawer(false);
+  else if (key === "escape" && t === "organize" && S.colSel.size) clearColSel();
+  else if (key === "escape" && S.sel.size) clearSelection();
+  else if (key === "escape" && S.finish) { S.finish = null; refreshFinish(); }
   else if (key === "?") showHelp(true);
-  else if (S.view.type === "overview") return;
+  else if (t === "organize" || t === "finish") return;
   else if (key === "arrowright") moveCursor(1);
   else if (key === "arrowleft") moveCursor(-1);
   else if (key === "arrowdown") moveVertical(1);
   else if (key === "arrowup") moveVertical(-1);
   else if (key === "enter" && S.cursor) openLightbox(S.cursor);
   else if (key === "d" && S.cursor) reviewAndAdvance();
+  else if (key === "n" && t === "collection") goNextCollection();
+  else if (key === "s" && S.cursor) toggleSelect(S.cursor, e.shiftKey);
   else if (key in KEY_STATE && S.cursor) setStates({ [S.cursor]: KEY_STATE[key] });
   else return;
   e.preventDefault();
 });
 
 $("#main").addEventListener("click", (e) => {
+  const k = e.target.closest(".keepers");
+  if (k) return expandGroup(S.groupById[k.closest(".group").dataset.group], true);
   const t = e.target.closest(".tile");
   if (!t) return;
   const id = t.dataset.id;
   const b = e.target.closest(".ctrl button");
   setCursor(id);
   if (b) setStates({ [id]: b.dataset.state });
+  // While selecting, a click anywhere on a photo selects it, like in a photo app.
+  else if (e.target.closest(".pick-box") || S.sel.size || e.shiftKey) toggleSelect(id, e.shiftKey);
   else openLightbox(id);
 });
 
@@ -1032,6 +1565,7 @@ $("#main").addEventListener("mousemove", (e) => {
 /* ---------- lightbox ---------- */
 
 function openLightbox(id) {
+  closeMenu();
   S.lb = { id };
   $("#lightbox").hidden = false;
   document.body.classList.add("locked");
@@ -1048,8 +1582,11 @@ function closeLightbox() {
   if (id) setCursor(id, true);
 }
 
+// The photos the viewer steps through: everything in the view except folded groups.
+const lbList = () => S.view.flat.filter((id) => !hiddenId(id) || id === S.lb.id);
+
 function lbStep(delta) {
-  const flat = S.view.flat;
+  const flat = lbList();
   const j = flat.indexOf(S.lb.id) + delta;
   if (j < 0 || j >= flat.length) return;
   S.lb.id = flat[j];
@@ -1059,7 +1596,7 @@ function lbStep(delta) {
 function paintLightbox() {
   const id = S.lb.id;
   const p = S.photos[id];
-  const flat = S.view.flat;
+  const flat = lbList();
   const pos = flat.indexOf(id);
   const img = $("#lb-img");
   if (img.dataset.id !== id) {
@@ -1105,15 +1642,17 @@ function paintLightbox() {
   paintStrip();
 }
 
-// Filmstrip: the whole group, or the neighbors of a loose photo.
+// Filmstrip: the whole group in the order it is shown, or the neighbors of a loose photo.
 function paintStrip() {
   const id = S.lb.id;
-  const p = S.photos[id];
+  const item = S.view.itemOf.get(id);
   let ids;
-  if (p.group) ids = S.groupById[p.group].members;
+  if (item && item.group) ids = item.order;
+  else if (S.photos[id].group) ids = S.groupById[S.photos[id].group].members;
   else {
-    const i = S.view.flat.indexOf(id);
-    ids = S.view.flat.slice(Math.max(0, i - 6), i + 7);
+    const flat = lbList();
+    const i = flat.indexOf(id);
+    ids = flat.slice(Math.max(0, i - 6), i + 7);
   }
   const strip = $("#lb-strip");
   strip.replaceChildren();
@@ -1142,6 +1681,7 @@ async function runMove(url, describe) {
   try {
     await S.saving;
     const r = await post(url);
+    S.finish = null;
     await load();
     toast(describe(r) + (r.errors.length ? ` (${r.errors.length} failed: ${r.errors[0]})` : ""), r.errors.length > 0);
   } catch (e) {
@@ -1149,28 +1689,16 @@ async function runMove(url, describe) {
   }
 }
 
-$("#apply").onclick = () => {
-  const m = movePlan();
-  if (!m.remove && !m.toFile) return;
-  const lines = [];
-  if (m.remove) lines.push(`Move ${plural(m.remove, "photo")} (${fmtBytes(m.bytes)}) marked "Remove" into\n${S.root}/_to_remove`);
-  if (m.toFile) lines.push(`Move ${plural(m.toFile, "kept photo")} into their folders:\n` +
-    m.folders.map((f) => `  ${f.c.folder}/  (${plural(f.n, "photo")})`).join("\n"));
-  const ok = confirm(lines.join("\n\n") + "\n\nNothing is deleted. You can undo this from this page, or delete _to_remove yourself once you are sure.");
-  if (!ok) return;
+function runApply() {
   runMove("/api/apply", (r) => {
     const done = [];
     if (r.moved) done.push(`Moved ${plural(r.moved, "photo")} to ${r.folder}`);
     if (r.filed) done.push(`filed ${plural(r.filed, "photo")} into ${plural(r.folders, "folder")}`);
     return done.length ? done.join(", ") + "." : "Nothing needed moving.";
   });
-};
+}
 
-$("#undo").onclick = () => {
-  const n = S.moved.size + Object.keys(S.filed).length;
-  if (!confirm(`Put all ${plural(n, "moved photo")} back where they were?`)) return;
-  runMove("/api/undo", (r) => `Restored ${plural(r.restored, "photo")}.`);
-};
+const runUndo = () => runMove("/api/undo", (r) => `Restored ${plural(r.restored, "photo")}.`);
 
 /* ---------- drawer, help, toast, thumbnail size ---------- */
 
@@ -1215,10 +1743,18 @@ new IntersectionObserver((entries) => {
 
 /* ---------- routing + loading ---------- */
 
+// #review opens the next collection with groups left (or the newest one when all are done).
 function parseRoute() {
-  const want = decodeURIComponent(location.hash.slice(1));
-  if (S.colById[want] || LIBRARY_BY_ID[want]) return want;
-  return S.collections.length || !S.order.length ? "overview" : "all";
+  let want = decodeURIComponent(location.hash.slice(1));
+  if (want === "overview") want = "organize";
+  if (want === "review") {
+    const c = nextCollection() || S.newestFirst[0];
+    if (!c) return S.order.length ? "all" : "organize";
+    history.replaceState(null, "", "#" + c.id);
+    return c.id;
+  }
+  if (want === "organize" || want === "finish" || S.colById[want] || LIBRARY_BY_ID[want]) return want;
+  return S.collections.length || !S.order.length ? "organize" : "all";
 }
 
 function go(route) {
@@ -1250,16 +1786,18 @@ async function load() {
   S.collections = d.collections || [];
   S.colById = Object.fromEntries(S.collections.map((c) => [c.id, c]));
   S.newestFirst = [...S.collections].sort((a, b) => b.start - a.start);
+  const seen = new Map();
+  for (const c of S.collections) if (!c.name) seen.set(defaultTitle(c), (seen.get(defaultTitle(c)) || 0) + 1);
+  S.dupTitles = new Set([...seen].filter(([, n]) => n > 1).map(([t]) => t));
   S.decisions = d.decisions;
   S.haiku = d.haiku || {};
   S.moved = new Set(d.moved);
   S.filed = d.filed || {};
   S.reviewed = new Set(d.reviewed || []);
-  $("#root").textContent = "\u200e" + d.root;  // left-to-right mark: the path is clipped from its start
+  $("#root").textContent = "‎" + d.root;  // left-to-right mark: the path is clipped from its start
   $("#root").title = d.root;
   recount();
   renderNav();
-  paintApply();
   showRoute(true);
 }
 

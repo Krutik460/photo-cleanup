@@ -275,13 +275,15 @@ def build_collections(photos, edits):
 def load_edits(out):
     """<out>/collection_edits.json, written by the review page:
     {"merges": [[[photoId, ...] per part], ...],
+     "moves": [{"photos": [photoId, ...], "into": [photoId, ...]}, ...],
      "not_collections": [{"photos": [photoId, ...], "names": [...], "folders": [...]}, ...]}."""
     try:
         with open(os.path.join(out, "collection_edits.json")) as f:
             edits = json.load(f)
     except FileNotFoundError:
         edits = {}
-    return {"merges": edits.get("merges") or [], "not_collections": edits.get("not_collections") or []}
+    return {"merges": edits.get("merges") or [], "moves": edits.get("moves") or [],
+            "not_collections": edits.get("not_collections") or []}
 
 
 def home_of(listed, owner):
@@ -297,7 +299,8 @@ def apply_edits(collections, edits):
     most of them now, so it survives reruns that add, remove or regroup photos. A photo that drifted
     into another collection (say an everyday month) never drags that whole collection along.
     1. merges: each part's collection joins the merge, and drifted photos of a part are pulled back;
-    2. not_collections: a trip, day trip or event holding most of the listed photos is not really one,
+    2. moves: the listed photos go into the collection holding most of the "into" photos;
+    3. not_collections: a trip, day trip or event holding most of the listed photos is not really one,
        so its photos fold into the everyday collection of their month. That collection remembers what
        was folded in ("folded"), so the page can offer to restore it.
     """
@@ -329,6 +332,24 @@ def apply_edits(collections, edits):
             kind = "everyday"
         collections = [c for i, c in enumerate(collections) if i not in homes and c["photos"]]
         collections.append({"kind": kind, "photos": ps, "parts": found})
+
+    for move in edits["moves"]:
+        owner = {p["id"]: i for i, c in enumerate(collections) for p in c["photos"]}
+        listed = set(move["photos"])
+        target = home_of([pid for pid in move["into"] if pid not in listed], owner)
+        if target is None:
+            continue
+        moving = {pid for pid in listed if pid in owner and owner[pid] != target}
+        if not moving:
+            continue
+        dest = collections[target]
+        for c in collections:
+            if c is not dest:
+                dest["photos"] += [p for p in c["photos"] if p["id"] in moving]
+                c["photos"] = [p for p in c["photos"] if p["id"] not in moving]
+        if dest["kind"] in ("trip", "daytrip"):
+            dest["kind"] = "trip" if len({day_of(p) for p in dest["photos"]}) > 1 else "daytrip"
+        collections = [c for c in collections if c["photos"]]
 
     owner = {p["id"]: i for i, c in enumerate(collections) for p in c["photos"]}
     hits = {}  # collection index -> one photo per mark on it (the page sends these back to restore)

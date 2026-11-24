@@ -108,7 +108,8 @@ class Library:
 
     def edits(self):
         e = read_json(self.edits_path, {})
-        return {"merges": e.get("merges") or [], "not_collections": e.get("not_collections") or []}
+        return {"merges": e.get("merges") or [], "moves": e.get("moves") or [],
+                "not_collections": e.get("not_collections") or []}
 
     def locations(self):
         """Photos that are not at their original path: {photoId: {"op", "to", "chain"}}.
@@ -152,6 +153,7 @@ class Library:
         write_json(self.folders_path, [add(f) for f in self.folders()])
         edits = self.edits()
         edits["merges"] = [[add(part) for part in m] for m in edits["merges"]]
+        edits["moves"] = [{"photos": add(m["photos"]), "into": add(m["into"])} for m in edits["moves"]]
         for e in edits["not_collections"]:
             e["photos"] = add(e["photos"])
             e["names"] = [{**n, "photos": add(n["photos"])} for n in e.get("names", [])]
@@ -273,9 +275,9 @@ class Handler(SimpleHTTPRequestHandler):
     def collection_of(self, data, pid):
         return next((c for c in data.get("collections", []) if pid in c["members"]), None)
 
-    def edit_collections(self, op, ids):
-        """Merge, split, mark as not a trip/event, or restore; then regroup. Returns a photo id of the
-        resulting collection, so the page can open it."""
+    def edit_collections(self, op, ids, into=None):
+        """Merge, split, move photos, mark as not a trip/event, or restore; then regroup. Returns a
+        photo id of the resulting collection, so the page can open it."""
         lib = self.lib
         data = lib.groups()
         owner = owners(data)
@@ -297,6 +299,16 @@ class Handler(SimpleHTTPRequestHandler):
             covered = {home_of(part, owner) for part in parts}
             parts += [c["members"] for c in targets if c["id"] not in covered]
             edits["merges"] = keep + [parts]
+        elif op == "move":
+            dest = self.collection_of(data, into)
+            moving = [pid for pid in ids if pid in data["photos"] and dest and pid not in dest["members"]]
+            if not moving:
+                raise ValueError("nothing to move")
+            # A newer move of a photo replaces its older one.
+            newer = set(moving)
+            older = [{**m, "photos": [pid for pid in m["photos"] if pid not in newer]} for m in edits["moves"]]
+            edits["moves"] = [m for m in older if m["photos"]] + [{"photos": moving, "into": dest["members"]}]
+            targets = [dest]
         elif op == "split":
             if not targets:
                 raise ValueError("unknown collection")
@@ -456,7 +468,7 @@ class Handler(SimpleHTTPRequestHandler):
             body = self.read_body()
             with lock:
                 try:
-                    anchor = self.edit_collections(body.get("op"), body.get("ids") or [])
+                    anchor = self.edit_collections(body.get("op"), body.get("ids") or [], body.get("into"))
                 except ValueError as e:
                     return self.send_error(HTTPStatus.BAD_REQUEST, str(e))
                 except RuntimeError as e:

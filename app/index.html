@@ -21,16 +21,15 @@
 <div class="page">
   <header class="topbar">
     <button class="icon-btn" id="menu" aria-label="Open navigation" aria-controls="side" aria-expanded="false"></button>
-    <div class="crumbs" id="crumbs"></div>
+    <nav class="steps" id="steps" aria-label="Steps"></nav>
     <span class="save" id="save" role="status"></span>
-    <label class="size" title="Thumbnail size">
+    <label class="size" id="size-box" title="Thumbnail size">
       <span class="size-label">Size</span>
       <input type="range" id="size" min="100" max="320" step="10" value="170" aria-label="Thumbnail size">
     </label>
     <button class="btn ghost" id="help-btn" title="Keyboard shortcuts (?)">Shortcuts</button>
-    <button class="btn" id="undo" hidden>Undo move</button>
-    <button class="btn danger" id="apply" disabled>Move marked photos</button>
   </header>
+  <div class="subbar" id="subbar" hidden></div>
 
   <main id="main"></main>
   <div id="sentinel"></div>
@@ -57,6 +56,8 @@
       <dt><kbd>X</kbd></dt><dd>Mark for removal</dd>
       <dt><kbd>U</kbd></dt><dd>Undo your choice (back to the suggestion)</dd>
       <dt><kbd>D</kbd></dt><dd>Mark the group as reviewed and go to the next one</dd>
+      <dt><kbd>N</kbd></dt><dd>Next trip, event or month to review</dd>
+      <dt><kbd>S</kbd></dt><dd>Select the photo (Shift for a range), to move photos to another trip, event or month</dd>
       <dt><kbd>&larr;</kbd> <kbd>&rarr;</kbd></dt><dd>Previous / next photo</dd>
       <dt><kbd>&uarr;</kbd> <kbd>&darr;</kbd></dt><dd>Previous / next group or row</dd>
       <dt><kbd>Enter</kbd></dt><dd>Open the photo large</dd>
@@ -67,7 +68,7 @@
     <ul class="legend">
       <li><span class="swatch fav"></span>Favorite: the best shot, kept</li>
       <li><span class="swatch keep"></span>Keep</li>
-      <li><span class="swatch remove"></span>Remove: red border, will be moved to _to_remove</li>
+      <li><span class="swatch remove"></span>Remove: dimmed with a red x, will be moved to _to_remove</li>
       <li><span class="swatch you"></span>Blue dot: you changed the suggestion</li>
     </ul>
     <p class="muted">Shortcuts act on the highlighted photo. Hover or click a photo to highlight it.</p>
@@ -86,6 +87,25 @@
     </div>
   </div>
 </div>
+
+<div class="dialog" id="moveto" hidden role="dialog" aria-labelledby="moveto-title">
+  <div class="card wide">
+    <h2 id="moveto-title">Move to…</h2>
+    <p class="muted">Pick the trip, event or month these photos belong to, nearest in time first. Only this page changes; no files move.</p>
+    <div class="pick-list" id="moveto-list"></div>
+    <div class="dialog-actions">
+      <button class="btn ghost" data-close>Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="selbar" id="selbar" hidden role="region" aria-label="Selection">
+  <span id="sel-count"></span>
+  <button class="btn primary small" id="sel-go"></button>
+  <button class="btn ghost small" id="sel-clear">Clear</button>
+</div>
+
+<div class="menu" id="menu-pop" hidden role="menu"></div>
 
 <div class="toast" id="toast" hidden role="status"></div>
 <script src="app.js"></script>
