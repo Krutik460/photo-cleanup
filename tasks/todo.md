@@ -353,3 +353,247 @@ library, 128 copies).
   (96 more, 27 of them out of the folder) -> undo clean-up (back into the folder) -> undo organize
   (every file back, folders gone). Also: a merge while filed keeps all 128 photos; a full rerun while
   filed gives 128 unique photos and carries your choice to the new id. Finish page checked in the browser.
+
+# Photo Cleanup as a Mac app (DMG, SQLite, Claude CLI) - plan
+
+## Context
+
+Today the tool is a set of scripts: `setup.sh` and `run.sh` in a terminal, a Haiku review that only
+runs when a Claude Code session orchestrates it, `python3 server.py` to open the page, and about ten
+JSON files per library as storage. The goal is one installable Mac app: drag it from a DMG, pick a
+photo folder, and everything (analysis, face matching, grouping, the second opinion from Claude, the
+review, the file moves) happens inside it, with a SQLite database as the store.
+
+Decided with you:
+- Only for your own Macs: signed with the Apple Development identity already on this Mac, no
+  notarization, the 174 MB face model ships inside the app.
+- The app starts your installed `claude` command itself, in the background, using your Claude login.
+  Progress, log, cancel and resume live in the app.
+
+## Pake: checked, not a fit
+
+Pake (v3.15+) can package a folder of static files into a DMG, so it could wrap `app/`. But it is
+only a web view wrapper: the docs cover no sidecar binaries, no process spawning, no file access
+beyond a download folder and no native database. Anything more means forking Pake's Rust source
+and writing custom Tauri commands. This app's backend is the hard part and it is Apple-only code
+(Vision analysis is already Swift), so Pake would mean a forked GPL Rust project plus Swift helper
+binaries plus the page: three languages. On macOS Pake/Tauri render with WKWebView anyway, the same
+web view a native Swift app embeds. A native Swift app gives the same result with one language and
+no fork, so that is the plan. The page you tuned is reused as is.
+
+## Architecture
+
+One Swift codebase, no Python and no local web server in the shipped app.
+
+```
+PhotoCleanup.app
+  SwiftUI shell          libraries, add folder, pipeline progress, toolbar, menus, settings
+  WKWebView              the existing app/ page (Organize, Review, Finish), loaded through a
+                         custom URL scheme, so its relative /api, /thumb, /full calls keep working
+  PhotoCleanupCore       Swift package with all logic, testable without the UI
+    Store                SQLite via GRDB (migrations, WAL)
+    Analyzer             from analyze.swift (Vision feature print, faces, aesthetics, thumbs)
+    Faces                ArcFace w600k_r50 converted to Core ML at build time (no runtime dependency)
+    Grouping             port of group.py (collections, edits, groups, automatic picks)
+    FileOps              organize / clean up / undo, from server.py
+    Review               contact sheets (sheet.swift), batches, ClaudeRunner, answer validation
+    Router               handle(method, path, body) -> response; the same routes server.py has
+```
+
+Key decisions:
+- **Web view transport**: a `WKURLSchemeHandler` serves the page files, `/thumb`, `/full` and
+  `/api/*` straight from `Router`. `app/app.js` needs no transport changes. Nothing listens on a
+  port, so no other process or browser tab can trigger file moves.
+- **Debug bridge for verification**: debug builds accept `--serve <port>`, which exposes the same
+  `Router` on 127.0.0.1 so the page can be driven by the browser tools exactly as today. Not in
+  release builds.
+- **Faces run on Core ML** (changed 2026-11-24, decided with you: the ONNX Runtime repositories
+  are gone from GitHub). `w600k_r50.onnx` is converted once at build time (onnx2torch, then
+  coremltools, Float32) and the script checks the result against ONNX Runtime before it is used.
+  The shipped app has no third-party runtime. The 0.36 threshold stays valid (see spike c).
+- **Not sandboxed** (it must run `claude` and work in any folder or external drive); Info.plist
+  carries the usage strings for removable volumes, Documents, Desktop and Downloads. Signing with
+  the Apple Development identity keeps those permissions stable across rebuilds.
+- **macOS 15 or later**, which is what the analyzer's Vision requests already require.
+- Project generated with XcodeGen (`project.yml`, already installed); dependencies: GRDB.
+  Nothing else.
+
+## SQLite design
+
+One database per library: `~/Library/Application Support/Photo Cleanup/Libraries/<uuid>/library.sqlite`,
+next to its `thumbs/`, `faces/`, `previews/`, `sheets/` caches. The library list is a scan of that
+folder (each database knows its photo folder and name), so there is no second registry to keep in
+sync. Deleting a library is deleting its folder.
+
+This fixes two root problems of the JSON design instead of carrying them over:
+- **Photo identity no longer comes from the path.** A photo is a row with a stable id, its current
+  relative path, its original path and a cheap fingerprint (size, modified time, hash of the first
+  and last 64 KB). The app updates the path in the same step as a move, and a rescan re-links files
+  moved in Finder by fingerprint. `carry_over` (copying every choice to new ids after filing) and
+  the replay of `moves.jsonl` (`current_locations`) disappear. There is exactly one place that
+  knows where a photo is (lesson 2 in `tasks/lessons.md`).
+- **Every change is a transaction**, replacing ten independently rewritten JSON files.
+
+Tables (sketch):
+- `photo` - path, original path, fingerprint, size, dims, times, GPS, feature print, sharpness,
+  aesthetics, utility flag, location (in place / filed / to remove), `me_sim`; derived: score,
+  group, collection, automatic state and reason
+- `face` (box, quality, crop, embedding), `neighbor` (a, b, distance), `reference_face`
+- derived, rebuilt in one transaction per regroup: `collection`, `grp`
+- your state: `decision`, `reviewed`, `ai_pick` (state, why, batch)
+- edits: `anchor_set` + `anchor_set_photo` (the photos an edit was made on, applied to the
+  collection holding most of them now - the existing rule, kept because it survives regrouping),
+  used by `collection_name`, `folder_switch`, `edit_merge_part`, `edit_move`, `edit_not_collection`
+- `file_move` - journal for undo. Written as an intent before the file moves and completed after;
+  unfinished intents are reconciled at launch, so a crash mid-move never loses track of a file
+- `review_batch` - status, timing, cost, error; makes the Claude run resumable
+
+## Claude CLI integration
+
+- **Finding it**: a GUI app does not get the shell's PATH. Order: path set in Settings, then
+  `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, then asking a login
+  shell (`zsh -lic 'command -v claude'`). Settings shows the path, version and login state, with a
+  clear message when it is missing or signed out.
+- **One process per batch** (about 20 groups, as today), 3 at a time by default:
+  `claude -p --model haiku --output-format json --json-schema <schema> --tools "" --no-session-persistence --strict-mcp-config`,
+  run from the library's `sheets/` folder. Not `--bare`: that mode ignores the Claude login.
+- **No tools at all**: the contact sheets go in as image blocks of the prompt
+  (`--input-format stream-json`) and the answer comes back as schema-validated JSON on stdout. The
+  model cannot read or write any file, and the per-tool-call overhead that dominated cost before
+  is gone. Fallback if the spike shows image input does not work this way: `--tools Read` limited
+  to the sheets folder.
+- Prompt: `haiku_prompt.md` minus the file-reading and file-writing instructions.
+- **Validation** keeps the rules of `merge_review.py`: a missing or malformed answer changes
+  nothing, an unmentioned photo is kept, a group with you always keeps a photo of you.
+- **In the app**: a "Second opinion" toolbar button with "N of M batches", picks appearing in the
+  page as batches land, a log sheet (batch start, finish, error, stderr), Cancel, and Resume of
+  unfinished batches on the next click. Model and parallelism are in Settings.
+- Privacy is unchanged and stated next to the button: contact sheets of thumbnails go to Anthropic
+  through your CLI; GPS, file names and face data never leave the Mac.
+
+## The app shell
+
+- First launch and File > Add Photo Folder: pick a folder, optionally drop 1-3 photos of you, Start.
+- Pipeline view: Analyze, Find you, Group, with counts, a cancel button and a list of files that
+  failed. Rescan (toolbar and File menu) is incremental, as `run.sh` is today.
+- Main window: toolbar (library switcher, Rescan, Second opinion, Settings) above the page. Standard
+  Mac menus and shortcuts; the page keeps its own keys (F K X U D S N, arrows, Enter, Esc).
+- Photo folder unavailable (drive unplugged): a banner, and file steps stay disabled, as today.
+- Native controls and system colors only; no custom chrome.
+
+## Existing 2026 library
+
+File > Import Review Data reads the old output folder (`../photo-cleanup-data/2026`). The photos are
+re-analyzed natively (about 3 minutes) and only your state is imported, matched through the old id
+(SHA-1 of the relative path, recomputable for every photo): 
+`decisions.json`, `reviewed.json`, `haiku/*.json`, `names.json`, `folders.json`,
+`collection_edits.json`, `reference_path.txt`. That library has no `moves.jsonl` (no file has been
+moved yet), so the importer refuses a folder with outstanding moves rather than handling them.
+
+No longer true (seen 2026-11-24 16:16): the old page organized the real library while this work
+was running. `moves.jsonl` now has 2,029 entries, 751 photos are filed into 6 folders, 128 went to
+`_to_remove` and are logged as `gone`, an operation added to `server.py` and `group.py` by another
+session after `6e29afe`. The importer therefore has to follow the move log to find each photo's
+current path, and steps 3, 5 and 8 must be ported from the Python as it stands when that other
+work is finished, not from `6e29afe`.
+
+## Steps
+
+- [x] 0. Commit the pending "Finish in two steps" work on `main`, branch `mac-app`, copy this plan
+      into `tasks/todo.md`
+- [x] 1. Spikes (a: passed, POST bodies arrive, 2026-11-24. b: passed on 2 groups from a minimal
+      environment on the Claude login, 9.2 s; full 20-group batch: 51.7 s, 20 of 20 groups answered
+      with every number covered once, 15,736 cache-creation + 992 cache-read input tokens, 7,418
+      output tokens, reported cost 0.0069, no tools, 3.81 MB of images on stdin (the tool-based run
+      was recorded as ~94k tokens per batch). `--setting-sources ""` is accepted but still loads 4
+      plugins (8 without it). The same group got a different keep/remove split in the two runs. c: the ONNX Runtime
+      route was dropped: `microsoft/onnxruntime-swift-package-manager` and `microsoft/onnxruntime`
+      return 404 on GitHub with no redirect; mirrors on personal accounts were deliberately not used.
+      Core ML instead, passed: the Float32 conversion matches ONNX Runtime exactly on the same pixels
+      (cosine 1.000000 on 200 crops; Float16 drops to 0.9969 and was rejected). From Swift on all
+      2,375 crops of the real library, 10 ms per face: the same 309 "you" photos as `me.json`, none
+      gained or lost; similarities differ by up to 0.0097 (mean 0.0018), because ImageIO and PIL
+      decode the same JPEG differently (27% of pixels, up to 27 levels), not because of the model.
+      The closest photo to the 0.36 threshold sits 0.016 away. Done in a throwaway environment in
+      the scratchpad; `.venv` was not changed.)
+      Original text: each a throwaway under 100 lines, to settle the three unknowns before building:
+      (a) POST bodies reach a `WKURLSchemeHandler` (fallback: `WKScriptMessageHandlerWithReply` for
+      `/api` calls); (b) one real batch through `claude -p` with image input and `--json-schema` on
+      your login, tokens and time noted; (c) ONNX Runtime in Swift reproduces the Python embeddings
+- [ ] 2. `PhotoCleanupCore` package, GRDB store with migrations, Analyzer writing to the database;
+      a small CLI target (`analyze`, `group`, `serve`) to drive it without the UI
+      (2026-11-24: package, store, analyzer, neighbors and `photocleanup-cli analyze` are in `Core/`,
+      17 tests pass on generated photos: scan, rescan, changed file, file moved outside the app,
+      identical copies moved together, deleted and restored file, unplugged folder, `_to_remove`,
+      unreadable file. Still open: comparing its output with the old `analyze` on real photos; the
+      `group` and `serve` commands come with steps 3 and 5.)
+- [ ] 3. Grouping port with parity tests against `group.py`
+- [ ] 4. Faces: `scripts/convert_face_model.py` (build time, self-checking), Core ML embedder in
+      Swift fed from the aligned crop in memory (no JPEG round trip), same "you" set as `me.json`
+- [ ] 5. Router + FileOps; the page running against Swift through `--serve`
+- [ ] 6. App shell: libraries, add folder, pipeline progress, web view, menus, settings, icon
+- [ ] 7. Review: native contact sheets, batches, ClaudeRunner, validation, toolbar UI
+- [ ] 8. Import of the existing library
+- [ ] 9. `scripts/make-dmg.sh`: Release build (universal), sign, `hdiutil` DMG with an Applications
+      link, into `dist/`; `setup.sh` shrinks to fetching the model for the build
+- [ ] 10. README rewrite; with your OK, remove the Python scripts and `run.sh` (history keeps them)
+- [ ] 11. Review section in `tasks/todo.md`; PR with `docs/pr/<num>-mac-app.md`
+
+## Files
+
+- New: `project.yml`, `Core/` (Swift package: `Sources/PhotoCleanupCore/{Store,Analyzer,Faces,Grouping,FileOps,Review,Router}`,
+  `Tests/`), `App/` (SwiftUI shell, `WebView.swift`, `SchemeHandler.swift`, `Info.plist`, assets),
+  `CLI/`, `scripts/make-dmg.sh`
+- Moved into Core and adapted: `analyze.swift`, `sheet.swift`
+- Ported, then removed in step 10: `group.py` (collections, `apply_edits`, grouping, picks),
+  `server.py` (`Library`, `organize`, `cleanup`, `undo`, `file_photo`, `folder_name`,
+  `collection_names`, `edit_collections`), `faces.py`, `prepare_review.py`, `merge_review.py`
+- Reused unchanged: `app/index.html`, `app/app.css`, `app/app.js` (photo ids stay opaque strings);
+  bundled as resources
+- `haiku_prompt.md` edited for tool-free input
+
+## Verification
+
+- **Grouping parity**: golden output from `group.py` on a scratch library and on the real
+  library's data (read only), compared field by field with the Swift port: collections, members,
+  kinds, group order, automatic state and reason of every photo. Float rounding and tie-breaks are
+  the known hazards.
+- **Edits**: a test per pair of edit types on the awkward shapes from `tasks/lessons.md` (merged
+  collection, a month that absorbed a folded event, filed photos), plus the real
+  `collection_edits.json` on a copy.
+- **File steps** on temporary folders with generated photos, never the real folder: organize,
+  rename + organize, move a photo out + organize, duplicates first, clean up, undo each, Live Photo
+  pairs, `/tmp` vs `/private/tmp`, a killed process mid-move, a Finder move followed by a rescan.
+- **Faces**: same set of "you" photos as `me.json`. Similarities within 0.01 (0.001 was written
+  before the spike and does not hold across two JPEG decoders; the model itself matches exactly).
+- **Claude**: validation rules as unit tests on recorded answers; one real small run end to end;
+  cancel and resume; `claude` missing and signed out.
+- **Page**: through `--serve` on a scratch copy with the browser tools: the Organize, Review and
+  Finish flows already listed in `tasks/todo.md`, at desktop widths only.
+- **The app itself**: build the DMG, mount it, drag to Applications, launch. Add a scratch copy of
+  real photos, run the pipeline, a second opinion, review, organize, clean up, undo, quit and
+  reopen. Checked with screenshots and held to the same pixel standard as the page.
+- **Real library**: import, then compare with the old page: photo, collection and to-remove
+  counts, number of your choices, names, merges. Look only, no file step.
+
+## Risks
+
+- Vision feature prints jitter between runs, so a re-analysis can shift a few group boundaries.
+  Your state is per photo, so nothing you decided is lost; the comparison in the last check shows
+  how much moved.
+- If the Swift grouping cannot match Python exactly because of float formatting, the differences
+  get listed and judged one by one rather than hidden behind a tolerance.
+- An app signed for development and not notarized needs one "Open Anyway" on a second Mac.
+
+## Folder names and folders renamed by hand
+
+- Folders are now named after the collection as it is (`Bronx 10 Mile`); unnamed collections keep the
+  date in front (`2026-10-16 Trip`) so they never share a folder.
+- The user renamed filed folders in Finder (972 tracked moves pointed at paths that no longer existed).
+  The server now catches up on its own (`relocate`, on page load and before every Finish step, free
+  when nothing is missing): a missing photo is found by file name + size when exactly one file matches
+  (Live Photo video too), a photo found nowhere is logged as `gone`. Real library: 844 found in the
+  renamed folders, 128 duplicate copies from the emptied `_to_remove` written off. Backups of the log and
+  groups from before: `moves.backup-before-relocate.jsonl`, `groups.backup-before-relocate.json`.
+  Tested on the scratch library: organize -> rename folders by hand -> page load finds all 44 -> undo
+  puts every file back and removes the renamed folders; emptied `_to_remove` -> gone, next load 0.01 s.
