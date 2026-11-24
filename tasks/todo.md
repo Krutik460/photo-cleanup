@@ -520,13 +520,17 @@ work is finished, not from `6e29afe`.
       (a) POST bodies reach a `WKURLSchemeHandler` (fallback: `WKScriptMessageHandlerWithReply` for
       `/api` calls); (b) one real batch through `claude -p` with image input and `--json-schema` on
       your login, tokens and time noted; (c) ONNX Runtime in Swift reproduces the Python embeddings
-- [ ] 2. `PhotoCleanupCore` package, GRDB store with migrations, Analyzer writing to the database;
+- [x] 2. `PhotoCleanupCore` package, GRDB store with migrations, Analyzer writing to the database;
       a small CLI target (`analyze`, `group`, `serve`) to drive it without the UI
       (2026-11-24: package, store, analyzer, neighbors and `photocleanup-cli analyze` are in `Core/`,
       17 tests pass on generated photos: scan, rescan, changed file, file moved outside the app,
       identical copies moved together, deleted and restored file, unplugged folder, `_to_remove`,
-      unreadable file. Still open: comparing its output with the old `analyze` on real photos; the
-      `group` and `serve` commands come with steps 3 and 5.)
+      unreadable file. Compared with the old `analyze` on a scratch copy of 120 real photos (56 HEIC,
+      64 JPEG, 170 faces): every field identical (size, times, dimensions, GPS, utility, sharpness,
+      aesthetics, face boxes and quality, 768-float feature prints) and the same 818 neighbor pairs
+      at the same distances; 5.2 s against 5.0 s. The `group` and `serve` commands come with steps
+      3 and 5. Since 2026-11-24 16:30 this work lives in the worktree `../photo-cleanup-mac-app`;
+      the original folder is back on `main` for the other session.)
 - [ ] 3. Grouping port with parity tests against `group.py`
 - [ ] 4. Faces: `scripts/convert_face_model.py` (build time, self-checking), Core ML embedder in
       Swift fed from the aligned crop in memory (no JPEG round trip), same "you" set as `me.json`
