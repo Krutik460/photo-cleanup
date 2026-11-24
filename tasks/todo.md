@@ -703,3 +703,49 @@ work is finished, not from `6e29afe`.
   groups from before: `moves.backup-before-relocate.jsonl`, `groups.backup-before-relocate.json`.
   Tested on the scratch library: organize -> rename folders by hand -> page load finds all 44 -> undo
   puts every file back and removes the renamed folders; emptied `_to_remove` -> gone, next load 0.01 s.
+
+## Review (2026-11-24, state at the end of the first working session)
+
+Built on branch `mac-app` in the worktree `../photo-cleanup-mac-app`; `main` was left to the other
+session. 85 tests pass (1 more runs only with real data and passed with 0 differences).
+
+Done and checked:
+- Core in Swift on SQLite: analyzer (identical to the old one on 120 real photos), faces on Core ML
+  (same 19 "you" on the sample), grouping (0 differences from `group.py` on 1,547 real photos),
+  catalog, router, file steps with a move journal, second opinion through the Claude CLI, import of
+  the old review, library summaries.
+- The app: opening check with Claude sign-in help, home overview with space saved and folder cards,
+  library window with the review page, second opinion panel, settings, File menu, icon. Pictured in
+  light and dark with the debug build: the three opening states, the overview, Organize, Review,
+  Finish. Dark was only pictured for the opening screen and the overview; the dark Review picture
+  was taken but not looked at.
+- File steps through the Finish page on a scratch copy of 120 real photos, then both undos: the
+  folder ended exactly as it began.
+- `dist/Photo-Cleanup-0.1.0.dmg` (161 MB, both architectures, signed); the release build launches.
+
+Changed from the plan, and why:
+- Pake was checked and not used (a web view wrapper with no backend).
+- Faces run on Core ML, not ONNX Runtime: its repositories returned 404 and personal mirrors were
+  not used. Decided with the user.
+- No derived tables and no `review_batch` table: collections and groups are computed in memory, and
+  "needs a second opinion" is "has no pick yet".
+- `App/` became `MacApp/` (the file system does not tell `App` from `app`).
+- The face-similarity tolerance was replaced by "same set of you photos" after it failed twice.
+- The importer follows the old move log, because the real library was organized during this work.
+
+Not done:
+- The 258 photos with review state that are no longer under the real folder (see step 8).
+- Importing the real library into the app, and the comparison with the old page.
+- Removing the Python scripts and shrinking `setup.sh` (step 10 needs the user's OK).
+- The pull request and `docs/pr/` write-up (step 11).
+- Merging `main`: the other session's uncommitted edits touch `README.md`, `app/app.js`,
+  `group.py` and `server.py`; `README.md` will conflict with the rewrite here.
+- Not tried by hand or pictured: keyboard shortcuts inside the web view, drag and drop of a folder,
+  the scan progress ring, the import menu item, removing a library, a window narrower than 1,440 pt,
+  the Intel build, a second Mac.
+
+Incidents during the work, both recorded above where they happened:
+- A test window stayed open for about a minute and was most likely used to add a real folder; its
+  process was stopped mid-scan. That half-scanned library is still in the scratchpad, untouched.
+- The page server from an earlier check appeared to answer a later one; it was the browser tab
+  keeping old data across a hash-only navigation, found by asking the server directly.
