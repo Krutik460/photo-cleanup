@@ -531,7 +531,20 @@ work is finished, not from `6e29afe`.
       at the same distances; 5.2 s against 5.0 s. The `group` and `serve` commands come with steps
       3 and 5. Since 2026-11-24 16:30 this work lives in the worktree `../photo-cleanup-mac-app`;
       the original folder is back on `main` for the other session.)
-- [ ] 3. Grouping port with parity tests against `group.py`
+- [x] 3. Grouping port with parity tests against `group.py`
+      (2026-11-24: `Core/Sources/PhotoCleanupCore/Grouping`, a pure function from photos, close
+      pairs and edits to collections, groups and automatic picks. Compared with `group.py` at
+      `6e29afe` on a copy of the real library's analysis files, all 1,547 photos, every field the
+      page shows: 0 differences with the real `collection_edits.json` (17 collections, 317
+      groups), 0 without edits (42 collections, 316 groups), 0 without face matching (313
+      groups). A deliberately mismatched case reports 2,512 differences, so the comparison is not
+      vacuous. It runs when `PHOTOCLEANUP_PARITY_DIR` is set; the data stays out of the repository.
+      17 unit tests on made-up libraries cover each edit type and the pairs from
+      `tasks/lessons.md`. One intended difference: `group.py` linked a close pair only when the
+      photo with the smaller id listed the other among its 40 nearest (9,371 of the real pairs are
+      known only from the other side); the port lets every close pair link. On the real data that
+      changes nothing: same groups, same picks. The move-log reading that the other session is
+      changing in `group.py` has no counterpart here, a photo's location is a column.)
 - [x] 4. Faces: `scripts/convert_face_model.py` (build time, self-checking), Core ML embedder in
       Swift fed from the aligned crop in memory (no JPEG round trip), same "you" set as `me.json`
       (2026-11-24: `uv run scripts/convert_face_model.py` writes `models/ArcFace.mlmodelc`, 166 MB,
