@@ -149,6 +149,32 @@ public final class Store {
                 t.column("into_set", .integer).notNull().references("anchor_set")
             }
         }
+        // Moving files. A photo that went to _to_remove remembers where it was just before; the
+        // video half of a Live Photo that moved with its photo remembers where it came from.
+        // file_move is written before a file is moved and marked done after the database caught up,
+        // so a move interrupted by a crash is finished or dropped at the next launch. Done rows
+        // stay as the record of what the app moved.
+        m.registerMigration("v5 file steps") { db in
+            try db.alter(table: "photo") { t in
+                t.add(column: "removed_from_rel", .text)
+            }
+            try db.create(table: "companion") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("photo_id", .integer).notNull().references("photo", onDelete: .cascade)
+                t.column("rel_path", .text).notNull()
+                t.column("original_rel_path", .text).notNull()
+            }
+            try db.create(table: "file_move") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("photo_id", .integer).notNull().references("photo", onDelete: .cascade)
+                t.column("companion_id", .integer)
+                t.column("op", .text).notNull().check(sql: "op IN ('file', 'remove', 'put_back', 'unremove')")
+                t.column("from_rel", .text).notNull()
+                t.column("to_rel", .text).notNull()
+                t.column("at", .double).notNull()
+                t.column("done", .boolean).notNull().defaults(to: false)
+            }
+        }
         return m
     }
 }

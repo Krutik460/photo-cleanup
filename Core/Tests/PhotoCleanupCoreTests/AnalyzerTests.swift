@@ -112,8 +112,9 @@ final class AnalyzerTests: XCTestCase {
         XCTAssertEqual(s.analyzed, 0)
         XCTAssertEqual(s.missing, 0)
         XCTAssertEqual(try id("2026 Seattle/renamed.jpg"), before)
+        // You moved it, so that is where it belongs now: a later "put back" will not undo your move.
         let original = try await library.store.db.read { try String.fetchOne($0, sql: "SELECT original_rel_path FROM photo WHERE id = ?", arguments: [before]) }
-        XCTAssertEqual(original, "a.jpg")
+        XCTAssertEqual(original, "2026 Seattle/renamed.jpg")
         XCTAssertEqual(try count("SELECT COUNT(*) FROM photo"), 2)
     }
 

@@ -555,7 +555,19 @@ work is finished, not from `6e29afe`.
       0.0112 (mean 0.0056, 5 photos over 0.01), a little more than the JPEG-decoded spike because
       the crop no longer goes through JPEG at all. Lowest "you" 0.64, highest "not you" 0.18.
       Not yet run on the whole real library; that happens with the import in step 8.)
-- [ ] 5. Router + FileOps; the page running against Swift through `--serve`
+- [x] 5. Router + FileOps; the page running against Swift through `--serve`
+      (File steps added 2026-11-24 17:15, `Catalog/FileSteps.swift`: organize, clean up (all or
+      duplicate copies only) and undo of each. Every move is written to `file_move` before the
+      file moves and marked done after the database caught up; unfinished ones are settled when
+      the library opens. Nothing is overwritten; only folders the app made are removed when empty.
+      The other session's `relocate` (catch up with Finder moves, write off what is gone) is done
+      here by the scan: a moved file keeps its row, a filed photo in a renamed folder stays filed
+      and can still be put back, an emptied `_to_remove` means those photos are missing.
+      13 tests on temporary folders, 81 in all. Through the Finish page on the scratch copy of 120
+      real photos: 36 filed into `2026-07-05 Day trip/`, 55 to `_to_remove` (17 of them out of
+      that folder), undo clean-up, undo organize; afterwards the same 120 files in the same places,
+      the app's two folders gone, the original subfolder untouched.)
+      Earlier note on the router half:
       (2026-11-24, router half done: `Catalog` keeps your choices, reviewed marks, names, folder
       switches, merges, moves and "not a trip" marks in SQLite and derives collections and groups
       in memory on every change, so there are no derived tables to go stale, a simplification of

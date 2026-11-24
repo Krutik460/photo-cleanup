@@ -109,8 +109,16 @@ public final class Router {
         case "/api/collections":
             guard let op = (body["op"] as? String).flatMap(Catalog.CollectionEdit.init(rawValue:)) else { throw CatalogError.invalid("unknown operation") }
             return .json(["anchor": try catalog.editCollections(op, ids: body["ids"] as? [String] ?? [], into: body["into"] as? String)])
-        case "/api/organize", "/api/cleanup", "/api/undo":
-            return .error(501, "Moving files is not part of this build yet. Nothing was changed.")
+        case "/api/organize":
+            let r = try catalog.organize()
+            return .json(["filed": r.filed, "back": r.back, "folders": r.folders, "errors": r.errors])
+        case "/api/cleanup":
+            let r = try catalog.cleanUp(duplicatesOnly: body["only"] as? String == "duplicates")
+            return .json(["moved": r.moved, "reviewed": r.reviewed, "errors": r.errors, "folder": r.folder])
+        case "/api/undo":
+            guard let step = (body["step"] as? String).flatMap(UndoStep.init(rawValue:)) else { throw CatalogError.invalid("unknown step") }
+            let r = try catalog.undo(step)
+            return .json(["restored": r.restored, "skipped": r.skipped, "errors": r.errors])
         default:
             return .notFound
         }

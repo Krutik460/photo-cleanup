@@ -19,20 +19,21 @@ let nameMaxLength = 80
 /// from the photos and your edits whenever either changes, so they cannot go stale.
 public final class Catalog {
     public let library: Library
-    private let lock = NSRecursiveLock()
-    private var rows: [String: PhotoRecord] = [:]
+    let lock = NSRecursiveLock()
+    var rows: [String: PhotoRecord] = [:]
     private var faces: [Int64: [Double?]] = [:]
-    private var grouping = GroupingResult(home: nil, collections: [], groups: [], photos: [:], order: [])
-    private var edits = StoredEdits()
-    private let timeZone: TimeZone
+    var grouping = GroupingResult(home: nil, collections: [], groups: [], photos: [:], order: [])
+    var edits = StoredEdits()
+    let timeZone: TimeZone
 
     public init(library: Library, timeZone: TimeZone = .current) throws {
         self.library = library
         self.timeZone = timeZone
+        try finishInterruptedMoves()
         try regroup()
     }
 
-    private func locked<T>(_ body: () throws -> T) rethrows -> T {
+    func locked<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
         defer { lock.unlock() }
         return try body()
@@ -71,7 +72,7 @@ public final class Catalog {
     public var photoCount: Int { locked { rows.count } }
     public var result: GroupingResult { locked { grouping } }
 
-    private var owner: [String: String] { grouping.photos.mapValues(\.collection) }
+    var owner: [String: String] { grouping.photos.mapValues(\.collection) }
 
     private func collection(of photo: String?) -> GroupedCollection? {
         guard let photo, let id = grouping.photos[photo]?.collection else { return nil }
@@ -80,7 +81,7 @@ public final class Catalog {
 
     /// {collection id: name}. A name applies to the collection holding most of its photos; when a
     /// merge brings several names together, the earliest part's name wins.
-    private func collectionNames() -> [String: String] {
+    func collectionNames() -> [String: String] {
         let owner = owner
         var best: [String: (first: Double, name: String)] = [:]
         for e in edits.names {
@@ -91,7 +92,7 @@ public final class Catalog {
         return best.mapValues(\.name)
     }
 
-    private func folderCollections() -> Set<String> {
+    func folderCollections() -> Set<String> {
         let owner = owner
         return Set(edits.folders.compactMap { homeOf($0.photos, owner) })
     }

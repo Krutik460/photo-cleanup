@@ -105,9 +105,29 @@ public final class Analyzer {
                     continue
                 }
                 let k = gone.remove(at: pick)
+                let library = self.library
                 try await library.store.db.write { db in
-                    try db.execute(sql: "UPDATE photo SET rel_path = ?, size = ?, mtime = ?, missing = 0 WHERE id = ?",
-                                   arguments: [f.rel, f.size, f.mtime, k.id])
+                    if k.location == .inPlace {
+                        // Moved by hand: its new place is where it belongs from now on.
+                        try db.execute(sql: "UPDATE photo SET rel_path = ?, original_rel_path = ?, size = ?, mtime = ?, missing = 0 WHERE id = ?",
+                                       arguments: [f.rel, f.rel, f.size, f.mtime, k.id])
+                    } else {
+                        // Filed by the app and then moved by hand (a renamed folder, a photo taken out of
+                        // _to_remove): it still knows where it originally came from, so undo keeps working.
+                        try db.execute(sql: """
+                            UPDATE photo SET rel_path = ?, size = ?, mtime = ?, missing = 0, removed_from_rel = NULL,
+                                location = CASE WHEN original_rel_path = ? THEN 'in_place' ELSE 'filed' END WHERE id = ?
+                            """, arguments: [f.rel, f.size, f.mtime, f.rel, k.id])
+                        // Its Live Photo video, when it moved along.
+                        let dir = (f.rel as NSString).deletingLastPathComponent
+                        for row in try Row.fetchAll(db, sql: "SELECT id, rel_path FROM companion WHERE photo_id = ?", arguments: [k.id]) {
+                            let old: String = row["rel_path"]
+                            let moved = (dir as NSString).appendingPathComponent((old as NSString).lastPathComponent)
+                            if moved != old, FileManager.default.fileExists(atPath: library.url(forRelPath: moved).path) {
+                                try db.execute(sql: "UPDATE companion SET rel_path = ? WHERE id = ?", arguments: [moved, row["id"] as Int64])
+                            }
+                        }
+                    }
                 }
                 present.insert(k.id)
                 summary.relinked += 1
@@ -180,7 +200,7 @@ public final class Analyzer {
                 record = PhotoRecord(id: nil, relPath: file.rel, originalRelPath: file.rel, fingerprint: nil, size: 0, mtime: 0,
                                      taken: nil, width: 0, height: 0, aesthetic: nil, utility: nil, sharpness: 0, feature: nil,
                                      lat: nil, lon: nil, analysisVersion: analysisVersion, error: nil, location: .inPlace, missing: false,
-                                     meSim: nil, meFace: nil)
+                                     meSim: nil, meFace: nil, removedFromRel: nil)
             }
             record.fingerprint = fp
             record.size = a.size
