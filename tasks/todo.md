@@ -556,6 +556,19 @@ work is finished, not from `6e29afe`.
       the crop no longer goes through JPEG at all. Lowest "you" 0.64, highest "not you" 0.18.
       Not yet run on the whole real library; that happens with the import in step 8.)
 - [ ] 5. Router + FileOps; the page running against Swift through `--serve`
+      (2026-11-24, router half done: `Catalog` keeps your choices, reviewed marks, names, folder
+      switches, merges, moves and "not a trip" marks in SQLite and derives collections and groups
+      in memory on every change, so there are no derived tables to go stale, a simplification of
+      the table sketch above. `Router` answers the page's requests; `photocleanup-cli serve` puts it
+      on localhost for development. Checked in the browser with the unchanged `app/` on the
+      120-photo sample library: Organize and Review render with thumbnails and "You" badges, no
+      console errors; mark reviewed, rename ("Diwali at Mom's") and the folder switch through the
+      page; merge (becomes a trip, name and switch follow), a refused merge with its message,
+      split and decide through the same requests; a HEIC opens as a 2400 px JPEG preview, a JPEG
+      as the file itself; `/../` and unknown ids give 404. 53 tests pass.
+      Open: FileOps (organize, clean up, undo). Those requests answer 501 "not part of this build
+      yet" and change nothing. They wait for the other session's Python, which is changing exactly
+      that code. Folder names already follow its newer rule (your name as it is, else date and kind).)
 - [ ] 6. App shell: libraries, add folder, pipeline progress, web view, menus, settings, icon
 - [ ] 7. Review: native contact sheets, batches, ClaudeRunner, validation, toolbar UI
 - [ ] 8. Import of the existing library

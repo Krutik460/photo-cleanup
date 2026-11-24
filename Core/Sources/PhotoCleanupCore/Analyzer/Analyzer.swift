@@ -210,6 +210,8 @@ public final class Analyzer {
         if let thumb = a.thumbnail {
             try writeJPEG(thumb, to: library.thumbURL(photoId))
         }
+        // A preview made from the previous version of the file is stale now; it is remade on demand.
+        try? FileManager.default.removeItem(at: library.previewsDir.appendingPathComponent("\(photoId).jpg"))
     }
 
     func listImages() -> [FoundFile] {

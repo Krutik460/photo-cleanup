@@ -4,6 +4,7 @@ import PhotoCleanupCore
 // Drives the core without the app.
 let usage = """
 usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.mlmodelc>] [--me <photo of you> ...]
+       photocleanup-cli serve <library-dir> <app-folder> [port]     the review page on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but
            not recognised; pass it from the first scan on.
@@ -63,6 +64,19 @@ case "analyze":
             }
             print("you appear in \(counts.0) of \(counts.1) photos with a recognisable face (threshold \(youThreshold))")
         }
+    } catch {
+        fail(error.localizedDescription)
+    }
+case "serve":
+    guard args.count == 3 || args.count == 4 else { fail(usage) }
+    do {
+        let library = try Library.open(at: path(args[1]))
+        let catalog = try Catalog(library: library)
+        let port = args.count == 4 ? UInt16(args[3]) ?? 8770 : 8770
+        let server = try LocalServer(router: Router(catalog: catalog, appDir: path(args[2])), port: port)
+        server.start()
+        print("Photo review: http://localhost:\(port)  (\(catalog.photoCount) photos, development only)")
+        dispatchMain()
     } catch {
         fail(error.localizedDescription)
     }
