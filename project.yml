@@ -1,0 +1,48 @@
+# Xcode project for the Mac app, generated with `xcodegen generate` (the .xcodeproj is not committed).
+name: PhotoCleanup
+options:
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  PhotoCleanupCore:
+    path: Core
+targets:
+  PhotoCleanup:
+    type: application
+    platform: macOS
+    sources:
+      # Not "App": the page lives in app/, and the file system does not tell the two apart.
+      - path: MacApp
+      # The review page, copied as it is and served to the web view through a custom URL scheme.
+      - path: app
+        type: folder
+        buildPhase: resources
+      # Compiled face model, made by scripts/convert_face_model.py (not in the repository).
+      - path: models/ArcFace.mlmodelc
+        type: folder
+        buildPhase: resources
+        optional: true
+    dependencies:
+      - package: PhotoCleanupCore
+    settings:
+      base:
+        PRODUCT_NAME: Photo Cleanup
+        PRODUCT_BUNDLE_IDENTIFIER: local.photocleanup.app
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Photo Cleanup
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.photography
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSRemovableVolumesUsageDescription: Photo Cleanup reads the photo folder you chose and moves photos inside it only when you ask.
+        INFOPLIST_KEY_NSDocumentsFolderUsageDescription: Photo Cleanup reads the photo folder you chose and moves photos inside it only when you ask.
+        INFOPLIST_KEY_NSDesktopFolderUsageDescription: Photo Cleanup reads the photo folder you chose and moves photos inside it only when you ask.
+        INFOPLIST_KEY_NSDownloadsFolderUsageDescription: Photo Cleanup reads the photo folder you chose and moves photos inside it only when you ask.
+        INFOPLIST_KEY_NSNetworkVolumesUsageDescription: Photo Cleanup reads the photo folder you chose and moves photos inside it only when you ask.
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        # Signed by scripts/make-dmg.sh, so a plain build needs no account or profile.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual

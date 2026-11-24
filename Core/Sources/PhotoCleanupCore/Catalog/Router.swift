@@ -9,6 +9,14 @@ public struct RouterResponse {
     public var file: URL?  // served instead of `body` when set
     public var cache = "no-store"
 
+    public init(status: Int = 200, contentType: String = "application/json", body: Data = Data(), file: URL? = nil, cache: String = "no-store") {
+        self.status = status
+        self.contentType = contentType
+        self.body = body
+        self.file = file
+        self.cache = cache
+    }
+
     static func json(_ object: Any, status: Int = 200) -> RouterResponse {
         RouterResponse(status: status, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data("{}".utf8))
     }

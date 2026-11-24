@@ -570,6 +570,21 @@ work is finished, not from `6e29afe`.
       yet" and change nothing. They wait for the other session's Python, which is changing exactly
       that code. Folder names already follow its newer rule (your name as it is, else date and kind).)
 - [ ] 6. App shell: libraries, add folder, pipeline progress, web view, menus, settings, icon
+      (2026-11-24, first half: `project.yml` (XcodeGen) and `MacApp/` (not `App/`: the page is in
+      `app/` and the file system does not tell the two apart). Start screen with the library list,
+      Add Photo Folder sheet, scan with progress, the page in a `WKWebView` fed by `Router` through
+      `photocleanup://`, File menu. Debug builds can save a picture of their own window
+      (`MacApp/DebugAutomation.swift`, `scripts/app-shot.sh`), so the UI is checked without
+      recording the screen. Checked that way on the 120-photo sample: empty start screen, the
+      sheet, add + scan + find you + group, the Organize page, relaunch with the library listed,
+      Review page. Not done: settings, icon, scan progress and error states pictured, keyboard
+      shortcuts inside the web view tried by hand, a second window size.
+      Incident: the test run that showed the sheet did not quit (terminate is refused while a sheet
+      is open; fixed with exit). While it sat on screen for about a minute a library for
+      `/Volumes/KRUTIK/Pictures/2026` was created in it at 16:47:20, which no command of mine asked
+      for, so it was most likely added by hand in that window. I stopped that process without
+      knowing, at 86 photos analyzed. The folder was only read. The library is still in the
+      scratchpad (`apptest/libs/3678941E-...`) and has not been touched since.)
 - [ ] 7. Review: native contact sheets, batches, ClaudeRunner, validation, toolbar UI
 - [ ] 8. Import of the existing library
 - [ ] 9. `scripts/make-dmg.sh`: Release build (universal), sign, `hdiutil` DMG with an Applications
