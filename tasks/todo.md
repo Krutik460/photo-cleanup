@@ -717,8 +717,8 @@ Done and checked:
 - The app: opening check with Claude sign-in help, home overview with space saved and folder cards,
   library window with the review page, second opinion panel, settings, File menu, icon. Pictured in
   light and dark with the debug build: the three opening states, the overview, Organize, Review,
-  Finish. Dark was only pictured for the opening screen and the overview; the dark Review picture
-  was taken but not looked at.
+  Finish. In dark: the opening screen, the overview and Review; Organize and Finish were pictured
+  in light only.
 - File steps through the Finish page on a scratch copy of 120 real photos, then both undos: the
   folder ended exactly as it began.
 - `dist/Photo-Cleanup-0.1.0.dmg` (161 MB, both architectures, signed); the release build launches.
