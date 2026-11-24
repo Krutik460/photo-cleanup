@@ -749,3 +749,21 @@ Incidents during the work, both recorded above where they happened:
   process was stopped mid-scan. That half-scanned library is still in the scratchpad, untouched.
 - The page server from an earlier check appeared to answer a later one; it was the browser tab
   keeping old data across a hash-only navigation, found by asking the server directly.
+
+## Design direction mockups (2026-11-24 18:15, in progress)
+
+Asked for after "this looks like very old app ui": one HTML with different views, built by sub
+agents, to pick a direction from. Four agents, one direction each (glass-workspace, focus-review,
+gallery-wall, command-deck), sharing `dist/design/data.js` and `dist/design/BRIEF.md`;
+`scripts/design/build_compare.py` combines them into `dist/design-directions.html`.
+
+- Reported done: glass-workspace, gallery-wall. Still running: focus-review, command-deck. All four
+  files exist on disk, which is not the same as finished.
+- Nothing has been looked at by me yet. The agents' reports are their own account.
+- To clean up when all four are done: the agents started local web servers to view their files
+  (the browser pane does not run `file://` pages). Listening now, both on 127.0.0.1 only:
+  PID 14218 on 8811 serving `dist/design`, and PID 12426 on 8931 serving the whole worktree, which
+  is wider than the task. Left running because the two unfinished agents are probably using them.
+  Stop those two and nothing else: 8765 and 8766 are the old page servers and are not mine.
+- Next time the brief must say how to view the file and that any server is bound to loopback,
+  serves only `dist/design`, and is stopped by whoever started it.
