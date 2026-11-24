@@ -173,6 +173,12 @@ into Seattle Fall (35 -> 38) and the page stayed on October although its id chan
 a rerun; moving them back replaced the older move (one stored move, sizes back to 28 / 35). Checked
 the selected state and bottom bar at desktop and narrow width. Real server restarted on the new code.
 
+Bug found in use: moves into an everyday month that had taken in a folded "not an event" were lost
+(0 of 76 photos landed). Moves ran before the fold, so their target was the not-yet-folded event, and
+the fold then sent each photo to the month of its own date. Moves now run last in `apply_edits`. Checked
+on the real edits (copy, then live: 78 of 78 moved photos in their targets, every other collection
+unchanged) and on the scratch library through the server, against the previous `group.py` (move lost).
+
 # UI/UX pass around the real workflow - plan
 
 How the page is used: (1) Organize: go over every trip, event and month, merge the ones that belong
@@ -299,3 +305,51 @@ Verified on a copy of the scratch library (126 real photos, `review-ux` in `.cla
   14 filed into 3 folders; Undo all moves -> all 130 files back, folders removed.
 - All library views render without errors. Checked at 1440 and 900 px; the real library viewed read-only
   (Organize, a collection, Finish).
+
+# Finish in two steps: organize files, then clean up - plan
+
+The user wants to put photos into their collection folders first and keep reviewing afterwards, so
+the Finish page gets two independent steps instead of one Move:
+
+1. Organize files: every photo of the collections whose folder switch is on (except those already in
+   `_to_remove`) goes into `<photo folder>/<date> <name>/`, with its Live Photo video. Running it again
+   makes the folders match the collections after later edits: photos moved to another collection or a
+   renamed collection move along, photos of a collection switched off go back to where they came from,
+   emptied folders are removed. Undo organize puts filed photos back where they came from.
+2. Clean up: photos marked remove go to `_to_remove` from wherever they are now (a folder included).
+   Undo clean-up puts them back where they were just before (their folder, if they were filed).
+
+Details:
+- Server: `/api/organize`, `/api/cleanup`, `/api/undo {step}`; `/api/apply` goes. moves.jsonl gains
+  op `back` (undo of the last move of a photo); `locations()` pops one entry for it.
+- Rerun carry-over no longer turns suggestions into your choices (filing now happens before review):
+  explicit choices, Haiku picks (`haiku/carried.json`), reviewed marks, names, folder switches and edits
+  are copied to the new ids.
+- Page: Finish shows two cards, each with its own plan, button, in-page confirm and Undo; the "not
+  reviewed yet" warning moves into the clean-up card. Folder switch texts count all photos, not kept ones.
+
+## Steps
+
+- [x] O1. server.py: organize, cleanup, per-step undo, `back` op, carry-over
+- [x] O2. app.js: Finish page in two steps, counts and texts
+- [x] O3. Verify on the scratch library: organize -> review -> rename + move a photo -> organize again ->
+      clean up -> undo clean-up -> undo organize -> rerun; desktop + narrow
+
+Added while building (user request): **Remove duplicate copies** in the clean-up step moves only the
+extra copies of exact-duplicate groups and marks those groups reviewed (125 of 317 groups in the real
+library, 128 copies).
+
+## Review
+
+- Found and fixed: after organizing, any collection edit (merge, move, not a trip) rebuilt the
+  collections without the filed photos, because `group.py` only looked at original paths. It now reads
+  the move log (`current_locations`, shared with the server) and keeps a moved photo until a rerun has
+  analyzed it at its new path, so nothing shows twice.
+- Found and fixed: "already in its folder" compared path spellings, so `/tmp` vs `/private/tmp` re-filed
+  photos as `IMG (2).JPG`; it now compares the folders themselves.
+- `scenario2.py` on the scratch library, all checks pass: organize (40 photos, removes included) ->
+  rename + organize (folder follows, old one removed) -> move 2 photos to a collection without a
+  folder + organize (they go back) -> duplicates first (only the copy, its group reviewed) -> clean-up
+  (96 more, 27 of them out of the folder) -> undo clean-up (back into the folder) -> undo organize
+  (every file back, folders gone). Also: a merge while filed keeps all 128 photos; a full rerun while
+  filed gives 128 unique photos and carries your choice to the new id. Finish page checked in the browser.

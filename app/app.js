@@ -42,7 +42,7 @@ function icon(name, size = 16) {
   return t.content.firstChild;
 }
 
-const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+const plural = (n, word, many = word + "s") => `${n.toLocaleString()} ${n === 1 ? word : many}`;
 
 /* ---------- constants ---------- */
 
@@ -90,7 +90,7 @@ const S = {
   cursor: null, nextId: null, renaming: false, navRefs: new Map(),
   lb: null, saving: Promise.resolve(), pending: 0,
   sel: new Set(), selFrom: null, colSel: new Set(), expanded: new Set(), dupTitles: new Set(),
-  finish: null,  // the confirm step on the Finish page: null, "move" or "undo"
+  finish: null,  // the confirm step on the Finish page: a step ("organize", "dups", "cleanup"), "undo-" + step, or null
 };
 
 /* ---------- decisions ---------- */
@@ -124,7 +124,10 @@ function setReviewed(g, on) {
 
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-  if (!r.ok) throw new Error("HTTP " + r.status);
+  if (!r.ok) {
+    const err = await r.json().catch(() => null);  // the server explains what went wrong when it can
+    throw new Error((err && err.error) || "HTTP " + r.status);
+  }
   return r.json();
 }
 
@@ -331,7 +334,7 @@ function renderView() {
   $("#size-box").hidden = v.type === "organize" || v.type === "finish";
 
   const main = $("#main");
-  main.className = "view-" + v.type + (v.route === "remove" ? " no-dim" : "");
+  main.className = "view-" + v.type;
   main.replaceChildren(viewHead());
   if (v.type === "organize") main.append(organizeBody());
   else if (v.type === "finish") main.append(finishBody());
@@ -482,7 +485,7 @@ function paintSteps() {
   const v = S.view;
   if (!v) return;
   const t = S.total, m = movePlan();
-  const n = m.remove + m.toFile;
+  const n = m.remove + m.toFile + m.toBack;
   const active = v.type === "organize" ? "organize" : v.type === "finish" ? "finish" : "review";
   const step = (id, label, status) => {
     const a = el("a", "step" + (id === active ? " on" : ""), el("span", "step-label", label), el("span", "step-status", status));
@@ -543,7 +546,7 @@ function viewHead() {
   if (v.type === "finish") {
     head.append(el("div", "vhead-top", el("div", "vhead-text",
       el("div", "title-row", el("h2", null, "Finish")),
-      el("p", "vmeta", "Check what Move will do, then move. Nothing is deleted: removed photos go to a _to_remove folder, and Undo puts everything back."))));
+      el("p", "vmeta", "Two separate steps, each with its own Undo. Organize the files into collection folders whenever you like, even before reviewing; clean up once the review is done. Nothing is deleted."))));
     return head;
   }
 
@@ -677,13 +680,20 @@ function foldedNotes(list) {
   return box;
 }
 
+// Where a collection's photos are, against where "Organize files" would put them. Photos marked
+// remove are filed too: organizing can come before the review, and clean-up takes them out later.
 function folderPlan(c) {
-  let toFile = 0, filed = 0;
+  let toFile = 0, filed = 0, toBack = 0;
+  const inFolder = c.folder + "/";
   for (const id of c.members) {
-    if (S.filed[id]) filed++;
-    else if (live(id) && eff(id) !== "remove") toFile++;
+    if (!live(id)) continue;  // in _to_remove
+    const at = S.filed[id];
+    if (c.folderOn) {
+      if (at && at.startsWith(inFolder)) filed++;
+      else toFile++;
+    } else if (at) toBack++;
   }
-  return { toFile, filed };
+  return { toFile, filed, toBack };
 }
 
 function folderSwitch(c, onChange, label) {
@@ -706,16 +716,16 @@ function folderHint(c) {
   const { toFile, filed } = folderPlan(c);
   const where = el("code", null, `${c.folder}/`);
   let hint;
-  if (!c.folderOn) hint = el("span", null, "Kept photos stay where they are.");
-  else if (toFile) hint = el("span", null, `${plural(toFile, "kept photo")} will move to `, where, " when you finish.");
-  else hint = el("span", null, "Nothing left to move to ", where, ".");
+  if (!c.folderOn) hint = el("span", null, "Photos stay where they are.");
+  else if (toFile) hint = el("span", null, `${plural(toFile, "photo")} will move to `, where, " when you organize the files on the Finish page.");
+  else hint = el("span", null, "Everything is in ", where, ".");
   if (filed) hint.append(` ${plural(filed, "photo")} ${filed === 1 ? "is" : "are"} already there.`);
   return hint;
 }
 
 function folderLine(c) {
   return el("div", "folder-line" + (c.folderOn ? " on" : ""),
-    folderSwitch(c, () => { refreshCounts(); }, el("span", "switch-text", icon("folder", 15), "Make a folder after cleanup")),
+    folderSwitch(c, () => { refreshCounts(); }, el("span", "switch-text", icon("folder", 15), "Make a folder for these photos")),
     el("span", "folder-hint", folderHint(c)));
 }
 
@@ -797,13 +807,6 @@ function gapText(h) {
   return h.days === 0 ? "Same day as " + t : h.days === 1 ? "The day after " + t : "2 days after " + t;
 }
 
-// The thumbnails on a row: favorites and best shots first, shown in time order.
-function stripPhotos(c, n) {
-  const rank = (id) => (eff(id) === "fav" ? 4 : eff(id) === "keep" ? 1 : 0) + S.photos[id].score;
-  return c.members.filter(live).sort((a, b) => rank(b) - rank(a)).slice(0, n)
-    .sort((a, b) => S.photos[a].time - S.photos[b].time);
-}
-
 const ratio = (id) => {
   const p = S.photos[id];
   return String(Math.min(2, Math.max(0.5, p.w && p.h ? p.w / p.h : 1)));
@@ -819,14 +822,14 @@ function organizeBody() {
     return wrap;
   }
   const hints = mergeHints();
-  let year = null, list = null;
+  let year = null, board = null;
   for (const c of S.newestFirst) {
     if (colYear(c) !== year) {
       year = colYear(c);
-      list = el("div", "olist");
-      wrap.append(el("h3", "section", year), list);
+      board = el("div", "obento");
+      wrap.append(el("h3", "section", year), board);
     }
-    list.append(orgRow(c, hints.get(c.id)));
+    board.append(orgCard(c, hints.get(c.id)));
   }
   return wrap;
 }
@@ -836,65 +839,84 @@ function refreshOrganize() {
   if (old) old.replaceWith(organizeBody());
 }
 
-function orgRow(c, hint) {
+// Bento board: a collection's tile grows with the photos it holds, so the big trips and busy months
+// stand out; the cover is a small mosaic of its best shots.
+const cardSize = (n) => (n >= 100 ? "xl" : n >= 25 ? "wide" : "small");
+const MOSAIC = { xl: 3, wide: 3, small: 1 };
+
+function coverPhotos(c, n) {
+  const rank = (id) => (eff(id) === "fav" ? 4 : eff(id) === "keep" ? 1 : 0) + S.photos[id].score;
+  return c.members.filter(live).sort((a, b) => rank(b) - rank(a)).slice(0, n);
+}
+
+function orgCard(c, hint) {
   const st = S.stats.get(c.id);
-  const row = el("div", "orow " + c.kind + (S.colSel.has(c.id) ? " selected" : ""));
-  row.dataset.col = c.id;
+  const size = cardSize(st.photos);
+  const card = el("div", `ocard size-${size} ${c.kind}` + (S.colSel.has(c.id) ? " selected" : ""));
+  card.dataset.col = c.id;
+
+  const cover = el("a", "ocard-cover");
+  cover.href = "#" + c.id;
+  cover.setAttribute("aria-label", "Open " + colTitle(c));
+  cover.append(...coverPhotos(c, MOSAIC[size]).map((id) => thumb(id)));
 
   const box = el("input");
   box.type = "checkbox";
   box.checked = S.colSel.has(c.id);
-  box.setAttribute("aria-label", "Select " + colTitle(c));
+  box.setAttribute("aria-label", "Select " + colTitle(c) + " to merge");
   box.onchange = () => toggleColSel(c, box.checked);
 
-  const title = el("a", "orow-title", colTitle(c));
-  title.href = "#" + c.id;
-  const meta = [colMeta(c), plural(st.photos, "photo")];
-  if (st.groups) meta.push(colStatus(st));
-  const text = el("div", "orow-text", el("div", "orow-head", title), el("div", "orow-meta", meta.join(" · ")));
-  if (hint) {
-    const m = el("button", "link-btn", "Merge them");
-    m.onclick = () => mergeCollections([c, hint.other]);
-    text.append(el("div", "orow-hint", icon("merge", 13), el("span", null, gapText(hint)), m));
-  }
-  for (const f of c.folded || []) {
-    const r = el("button", "link-btn", "Restore");
-    r.onclick = () => editCollections("restore", f.anchors, "Restored as " + COLLECTION_KIND[f.kind].toLowerCase() + ".");
-    const what = el("span", null, `Includes ${defaultTitle(f)} · ${plural(f.photos, "photo")}`);
-    what.title = `You marked ${defaultTitle(f)} as ${NOT_KIND[f.kind].replace("Not ", "not ")}; its photos are here now.`;
-    text.append(el("div", "orow-folded", icon("undo", 13), what, r));
-  }
-
-  const strip = el("a", "ostrip");
-  strip.href = "#" + c.id;
-  strip.setAttribute("aria-label", "Open " + colTitle(c));
-  for (const id of stripPhotos(c, 14)) {
-    const img = thumb(id);
-    img.style.setProperty("--r", ratio(id));
-    strip.append(img);
-  }
-
-  const actions = el("div", "orow-actions");
-  const action = (ico, label, title, onClick) => {
-    const b = el("button", "btn ghost small", icon(ico, 14), label);
-    b.title = title;
+  const actions = el("div", "ocard-actions");
+  const action = (ico, label, onClick) => {
+    const b = el("button", "icon-chip", icon(ico, 15));
+    b.title = label;
+    b.setAttribute("aria-label", label);
     b.onclick = onClick;
     actions.append(b);
   };
-  action("pencil", "Rename", "Give it a name", () => startRename(c, text.querySelector(".orow-head")));
-  if (c.parts > 1) action("split", "Split", `Undo the merge: back to the ${c.parts} collections it was made of`, () => splitCollection(c));
-  if (NOT_KIND[c.kind]) action("x", NOT_KIND[c.kind], "Its photos go back to the everyday month they belong to", () => dissolveCollection(c));
+  const body = el("div", "ocard-body");
+  action("pencil", "Rename", () => startRename(c, body.querySelector(".ocard-head")));
+  if (c.parts > 1) action("split", `Split back into the ${c.parts} collections it was made of`, () => splitCollection(c));
+  if (NOT_KIND[c.kind]) action("x", NOT_KIND[c.kind] + ": its photos go back to their everyday month", () => dissolveCollection(c));
 
-  row.append(el("label", "orow-check", box), el("span", "kind-ico " + c.kind, icon(c.kind, 16)), text, strip, actions);
-  return row;
+  const title = el("a", "ocard-title", colTitle(c));
+  title.href = "#" + c.id;
+  const meta = [fmtRange(c), plural(st.photos, "photo")];
+  if (st.groups) meta.push(colStatus(st));
+  body.append(el("div", "ocard-head", title), el("div", "ocard-meta", meta.join(" · ")));
+  if (hint) {
+    const m = el("button", "chip", icon("merge", 12), "Merge with " + colTitle(hint.other));
+    m.title = gapText(hint) + ". Merge them into one?";
+    m.onclick = () => mergeCollections([c, hint.other]);
+    body.append(m);
+  }
+  if (c.folded && c.folded.length) {
+    const f = c.folded[0];
+    const chip = el("button", "chip quiet", icon("undo", 12),
+      c.folded.length > 1 ? `Includes ${c.folded.length} unmarked · Open`
+        : size === "small" ? `Restore ${COLLECTION_KIND[f.kind].toLowerCase()}` : `Includes ${COLLECTION_KIND[f.kind].toLowerCase()} · Restore`);
+    chip.title = c.folded.map((x) => `${defaultTitle(x)} · ${plural(x.photos, "photo")}`).join("\n");
+    chip.onclick = c.folded.length === 1
+      ? () => editCollections("restore", f.anchors, "Restored as " + COLLECTION_KIND[f.kind].toLowerCase() + ".")
+      : () => go(c.id);
+    body.append(chip);
+  }
+  if (st.groups) body.append(progressBar(st));
+
+  card.append(cover,
+    el("div", "ocard-top", el("label", "ocard-check", box),
+      el("span", "kind-tag " + c.kind, icon(c.kind, 13), c.parts > 1 ? `${COLLECTION_KIND[c.kind]} · ${c.parts} merged` : COLLECTION_KIND[c.kind]),
+      actions),
+    body);
+  return card;
 }
 
 function toggleColSel(c, on) {
   if (on) S.colSel.add(c.id); else S.colSel.delete(c.id);
-  const row = document.querySelector(`.orow[data-col="${c.id}"]`);
-  if (row) {
-    row.classList.toggle("selected", on);
-    row.querySelector(".orow-check input").checked = on;
+  const card = document.querySelector(`.ocard[data-col="${c.id}"]`);
+  if (card) {
+    card.classList.toggle("selected", on);
+    card.querySelector(".ocard-check input").checked = on;
   }
   paintSelection();
 }
@@ -904,11 +926,11 @@ function clearColSel() {
 }
 
 function flashRow(c) {
-  const row = c && document.querySelector(`.orow[data-col="${c.id}"]`);
-  if (!row) return;
-  row.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  row.classList.add("flash");
-  setTimeout(() => row.classList.remove("flash"), 1600);
+  const card = c && document.querySelector(`.ocard[data-col="${c.id}"]`);
+  if (!card) return;
+  card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  card.classList.add("flash");
+  setTimeout(() => card.classList.remove("flash"), 1600);
 }
 
 /* ---------- selecting photos and moving them to another collection ---------- */
@@ -1053,10 +1075,13 @@ function paintNav() {
       t.groups ? progressBar(t) : null));
 }
 
-// What Move will do: marked photos to _to_remove, kept photos into their collection folders.
+// What the two Finish steps would do now: organize (photos into their collection folders, or back
+// out of folders whose switch is off) and clean up (photos marked remove into _to_remove).
 function movePlan() {
-  const folders = S.collections.filter((c) => c.folderOn).map((c) => ({ c, n: folderPlan(c).toFile })).filter((f) => f.n);
-  return { remove: S.total.remove, bytes: S.total.bytes, folders, toFile: folders.reduce((n, f) => n + f.n, 0) };
+  const plans = S.collections.map((c) => ({ c, ...folderPlan(c) }));
+  const folders = plans.filter((f) => f.toFile);
+  return { remove: S.total.remove, bytes: S.total.bytes, folders,
+    toFile: folders.reduce((n, f) => n + f.toFile, 0), toBack: plans.reduce((n, f) => n + f.toBack, 0) };
 }
 
 function refreshCounts() {
@@ -1097,7 +1122,7 @@ function groupCard(item) {
   const why = groupWhy(g);
   card.append(groupHead(g));
   if (why) card.append(el("div", "why", el("b", null, "Haiku"), why));
-  const tiles = el("div", "tiles");
+  const tiles = el("div", "tiles" + (g.members.length <= 3 ? " few" : ""));
   for (const id of item.order) tiles.append(tile(id));
   const keepers = el("button", "keepers");
   keepers.title = "Show the whole group";
@@ -1288,94 +1313,138 @@ function finishBody() {
   const wrap = el("div", "finish");
   wrap.id = "finish";
   const m = movePlan(), t = S.total;
-  const n = m.remove + m.toFile;
-  const done = S.moved.size + Object.keys(S.filed).length;
+  const filedN = Object.keys(S.filed).length;
 
-  const open = S.newestFirst.filter((c) => S.stats.get(c.id).left);
-  if (open.length) {
-    wrap.append(el("div", "fnote warn", icon("warn", 16),
-      el("span", null, `${plural(t.left, "group")} in ${open.length === 1 ? "1 collection" : open.length + " collections"} ${t.left === 1 ? "is" : "are"} not reviewed yet. Their suggestions are used as they are.`),
-      linkButton("Keep reviewing", "review", "small")));
-  }
-
-  // What goes to _to_remove.
-  const see = el("a", "btn small", "See them", icon("arrow", 14));
-  see.href = "#remove";
-  wrap.append(el("section", "fcard",
-    el("div", "fcard-head",
-      el("span", "fcard-ico remove", icon("trash", 18)),
-      el("div", "fcard-text",
-        el("h3", null, m.remove ? `${plural(m.remove, "photo")} to remove · ${fmtBytes(m.bytes)}`
-          : S.moved.size ? `All marked photos are in _to_remove (${S.moved.size.toLocaleString()})` : "Nothing marked for removal"),
-        el("p", null, "Moved into ", el("code", null, `${baseName(S.root)}/_to_remove/`), ", keeping their subfolders. Delete that folder yourself once you are sure.")),
-      m.remove ? see : null)));
-
-  // Which collections get a folder of their own.
+  // Step one: organize the files by collection. Can happen before the review.
   const rows = S.newestFirst.map((c) => {
-    const { toFile, filed } = folderPlan(c);
-    const sub = c.folderOn
-      ? (toFile ? `${plural(toFile, "kept photo")} into ` : "Nothing left to move into ")
-      : toFile ? `${plural(toFile, "kept photo")} ${toFile === 1 ? "stays" : "stay"} where ${toFile === 1 ? "it is" : "they are"}` : "No kept photos";
-    const subEl = el("span", "frow-sub", sub);
-    if (c.folderOn) subEl.append(el("code", null, c.folder + "/"));
-    if (filed) subEl.append(` · ${filed.toLocaleString()} already there`);
+    const { toFile, filed, toBack } = folderPlan(c);
+    let sub;
+    if (c.folderOn) sub = el("span", "frow-sub", toFile ? `${plural(toFile, "photo")} into ` : "All in ", el("code", null, c.folder + "/"));
+    else sub = el("span", "frow-sub", toBack ? `${plural(toBack, "photo")} go back where they came from` : "Photos stay where they are");
+    if (c.folderOn && filed && toFile) sub.append(` · ${filed.toLocaleString()} already there`);
     const title = el("a", "frow-title", colTitle(c));
     title.href = "#" + c.id;
     return el("div", "frow" + (c.folderOn ? " on" : ""),
       el("span", "kind-ico " + c.kind, icon(c.kind, 15)),
-      el("span", "frow-text", title, subEl),
+      el("span", "frow-text", title, sub),
       folderSwitch(c, refreshCounts));
   });
-  const on = S.collections.filter((c) => c.folderOn).length;
+  const orgN = m.toFile + m.toBack;
+  const orgParts = [];
+  if (m.toFile) orgParts.push(`${plural(m.toFile, "photo")} into ${plural(m.folders.length, "folder")}`);
+  if (m.toBack) orgParts.push(`${plural(m.toBack, "photo")} back where they came from`);
+  const orgTitle = orgN ? orgParts.join(", ")
+    : filedN ? "The folders match your collections" : "Switch on the collections that should get a folder";
   wrap.append(el("section", "fcard",
     el("div", "fcard-head",
       el("span", "fcard-ico", icon("folder", 18)),
       el("div", "fcard-text",
-        el("h3", null, m.toFile ? `${plural(m.toFile, "kept photo")} into ${plural(m.folders.length, "folder")}` : on ? "No kept photos left to file" : "Kept photos stay where they are"),
-        el("p", null, "Switch on the trips and events whose kept photos should get a folder of their own, named after the date and name."))),
-    el("div", "frows", ...rows)));
+        el("h3", null, "Organize files"),
+        el("p", "fcard-lead", orgTitle),
+        el("p", null, "Every photo of a switched-on trip, event or month moves into a folder named after its date and name. " +
+          "You can do this before reviewing: cleaning up later takes the removed photos out of these folders. " +
+          "Run it again after renaming or moving photos to keep the folders in line."))),
+    el("div", "frows", ...rows),
+    stepFoot("organize", orgN, filedN, {
+      go: `Organize ${plural(orgN, "photo")}`,
+      ask: `Move ${orgParts.join(", and ")} now?`,
+      sentence: "Nothing is deleted, and you can keep reviewing afterwards.",
+      yes: `Yes, organize ${plural(orgN, "photo")}`,
+      idle: filedN ? `${plural(filedN, "photo")} ${filedN === 1 ? "is" : "are"} in collection folders.` : "Nothing is organized into folders yet.",
+      undo: "Undo organize",
+      undoAsk: `Put the ${plural(filedN, "filed photo")} back where they came from?`,
+    })));
 
-  // The one button that touches files, with a confirm step right here.
-  const act = el("section", "fact");
-  if (S.finish === "move") {
-    const cancel = el("button", "btn ghost", "Cancel");
-    cancel.onclick = () => { S.finish = null; refreshFinish(); };
-    const yes = el("button", "btn danger strong", `Yes, move ${n.toLocaleString()} photos`);
-    yes.onclick = runApply;
-    act.append(el("p", "fact-text", el("b", null, "Move the photos now?"), " " + moveSentence(m) + " Nothing is deleted, and Undo puts everything back."), el("div", "fact-buttons", cancel, yes));
-    act.classList.add("confirm");
-  } else if (S.finish === "undo") {
-    const cancel = el("button", "btn ghost", "Cancel");
-    cancel.onclick = () => { S.finish = null; refreshFinish(); };
-    const yes = el("button", "btn primary", `Yes, put ${plural(done, "photo")} back`);
-    yes.onclick = runUndo;
-    act.append(el("p", "fact-text", el("b", null, "Undo every move?"), ` All ${plural(done, "moved photo")} go back where they were.`), el("div", "fact-buttons", cancel, yes));
-    act.classList.add("confirm", "soft");
-  } else if (n || !done) {
-    const go = el("button", "btn danger strong", n ? `Move ${n.toLocaleString()} photos` : "Nothing to move");
-    go.disabled = !n;
-    go.onclick = () => { S.finish = "move"; refreshFinish(); };
-    act.append(el("p", "fact-text", n ? moveSentence(m) : "Everything is where it should be."), el("div", "fact-buttons", go));
+  // Step two: clean up, best done once everything is reviewed.
+  const see = el("a", "btn small", "See them", icon("arrow", 14));
+  see.href = "#remove";
+  const open = S.newestFirst.filter((c) => S.stats.get(c.id).left);
+  const card = el("section", "fcard",
+    el("div", "fcard-head",
+      el("span", "fcard-ico remove", icon("trash", 18)),
+      el("div", "fcard-text",
+        el("h3", null, "Clean up"),
+        el("p", "fcard-lead", m.remove ? `${plural(m.remove, "photo")} to remove · ${fmtBytes(m.bytes)}`
+          : S.moved.size ? `All marked photos are in _to_remove (${S.moved.size.toLocaleString()})` : "Nothing marked for removal"),
+        el("p", null, "Moved into ", el("code", null, `${baseName(S.root)}/_to_remove/`),
+          ", from wherever they are now (their collection folder too), keeping their original subfolders. Delete that folder yourself once you are sure.")),
+      m.remove ? see : null));
+  // Exact copies need no judgment, so they can go first and take their groups off the review list.
+  const dupGroups = S.groups.filter((g) => g.kind === "duplicate");
+  if (dupGroups.length) {
+    let dups = 0, dupBytes = 0, dupOpen = 0;
+    for (const g of dupGroups) {
+      if (!groupDone(g)) dupOpen++;
+      for (const id of g.members) if (live(id) && eff(id) === "remove") { dups++; dupBytes += S.photos[id].size; }
+    }
+    card.append(el("div", "fcard-part",
+      el("div", "fcard-part-text",
+        el("b", null, dups ? `${plural(dups, "duplicate copy", "duplicate copies")} · ${fmtBytes(dupBytes)}` : "No duplicate copies left"),
+        el("span", null, `Exact copies of photos you keep (like IMG_1 2.JPG next to IMG_1.JPG), in ${plural(dupGroups.length, "group")}. ` +
+          "Nothing to judge, so they can go first" + (dupOpen ? `, and their ${plural(dupOpen, "group")} ${dupOpen === 1 ? "is" : "are"} marked reviewed.` : "."))),
+      stepFoot("dups", dups, 0, {
+        go: "Remove duplicate copies",
+        ask: `Move ${plural(dups, "duplicate copy", "duplicate copies")} (${fmtBytes(dupBytes)}) to _to_remove now?`,
+        sentence: "Only the extra copies go; the copy you keep stays. Undo clean-up puts them back.",
+        yes: "Yes, remove the copies",
+        danger: true,
+        idle: "",
+      })));
   }
-  if (act.childNodes.length) wrap.append(act);
-
-  if (done && S.finish !== "undo") {
-    const undo = el("button", "btn", icon("undo", 14), "Undo all moves");
-    undo.onclick = () => { S.finish = "undo"; refreshFinish(); };
-    const filedN = Object.keys(S.filed).length;
-    const parts = [];
-    if (S.moved.size) parts.push(`${plural(S.moved.size, "photo")} in _to_remove`);
-    if (filedN) parts.push(`${plural(filedN, "photo")} filed into folders`);
-    wrap.append(el("div", "fnote", icon("check", 16), el("span", null, "Already moved: " + parts.join(", ") + "."), undo));
+  if (open.length) {
+    card.append(el("div", "fnote warn", icon("warn", 16),
+      el("span", null, `${plural(t.left, "group")} in ${open.length === 1 ? "1 collection" : open.length + " collections"} ${t.left === 1 ? "is" : "are"} not reviewed yet. Their suggestions are used as they are.`),
+      linkButton("Keep reviewing", "review", "small")));
   }
+  card.append(stepFoot("cleanup", m.remove, S.moved.size, {
+    go: `Move ${plural(m.remove, "photo")} to _to_remove`,
+    ask: `Move ${plural(m.remove, "photo")} (${fmtBytes(m.bytes)}) to _to_remove now?`,
+    sentence: "Nothing is deleted, and Undo clean-up puts them back where they were.",
+    yes: `Yes, move ${plural(m.remove, "photo")}`,
+    danger: true,
+    idle: S.moved.size ? `${plural(S.moved.size, "photo")} ${S.moved.size === 1 ? "is" : "are"} in _to_remove.` : "Nothing is in _to_remove yet.",
+    undo: "Undo clean-up",
+    undoAsk: `Put the ${plural(S.moved.size, "photo")} in _to_remove back where they were?`,
+  }));
+  wrap.append(card);
   return wrap;
 }
 
-function moveSentence(m) {
-  const parts = [];
-  if (m.remove) parts.push(`${plural(m.remove, "photo")} marked remove go to _to_remove`);
-  if (m.toFile) parts.push(`${plural(m.toFile, "kept photo")} go into ${plural(m.folders.length, "folder")}`);
-  return parts.join(", and ") + ".";
+// The footer of a Finish step: its button, an in-page confirm, and its own Undo.
+function stepFoot(step, n, done, text) {
+  const foot = el("div", "fcard-foot");
+  const cancel = () => {
+    const b = el("button", "btn ghost", "Cancel");
+    b.onclick = () => { S.finish = null; refreshFinish(); };
+    return b;
+  };
+  if (S.finish === step) {
+    const yes = el("button", "btn " + (text.danger ? "danger strong" : "primary"), text.yes);
+    yes.onclick = () => runStep(step);
+    foot.classList.add("confirm");
+    if (!text.danger) foot.classList.add("soft");
+    foot.append(el("p", "fact-text", el("b", null, text.ask), " " + text.sentence), el("div", "fact-buttons", cancel(), yes));
+    return foot;
+  }
+  if (S.finish === "undo-" + step) {
+    const yes = el("button", "btn primary", "Yes, put them back");
+    yes.onclick = () => runUndo(step);
+    foot.classList.add("confirm", "soft");
+    foot.append(el("p", "fact-text", el("b", null, text.undoAsk)), el("div", "fact-buttons", cancel(), yes));
+    return foot;
+  }
+  const buttons = el("div", "fact-buttons");
+  if (done) {
+    const undo = el("button", "btn ghost", icon("undo", 14), text.undo);
+    undo.onclick = () => { S.finish = "undo-" + step; refreshFinish(); };
+    buttons.append(undo);
+  }
+  const go = el("button", "btn " + (text.danger ? "danger strong" : "primary"), n ? text.go : "Nothing to move");
+  go.disabled = !n;
+  go.onclick = () => { S.finish = step; refreshFinish(); };
+  buttons.append(go);
+  foot.append(el("p", "fact-text", n ? text.sentence : text.idle), buttons);
+  return foot;
 }
 
 function refreshFinish() {
@@ -1677,10 +1746,10 @@ $("#lightbox").addEventListener("click", (e) => { if (e.target.classList.contain
 
 /* ---------- move / undo ---------- */
 
-async function runMove(url, describe) {
+async function runMove(url, describe, body) {
   try {
     await S.saving;
-    const r = await post(url);
+    const r = await post(url, body);
     S.finish = null;
     await load();
     toast(describe(r) + (r.errors.length ? ` (${r.errors.length} failed: ${r.errors[0]})` : ""), r.errors.length > 0);
@@ -1689,16 +1758,27 @@ async function runMove(url, describe) {
   }
 }
 
-function runApply() {
-  runMove("/api/apply", (r) => {
-    const done = [];
-    if (r.moved) done.push(`Moved ${plural(r.moved, "photo")} to ${r.folder}`);
-    if (r.filed) done.push(`filed ${plural(r.filed, "photo")} into ${plural(r.folders, "folder")}`);
-    return done.length ? done.join(", ") + "." : "Nothing needed moving.";
-  });
+function runStep(step) {
+  if (step === "organize") {
+    runMove("/api/organize", (r) => {
+      const done = [];
+      if (r.filed) done.push(`Moved ${plural(r.filed, "photo")} into ${plural(r.folders, "folder")}`);
+      if (r.back) done.push(`put ${plural(r.back, "photo")} back where they came from`);
+      return done.length ? done.join(", ") + "." : "The folders already matched your collections.";
+    });
+  } else if (step === "dups") {
+    runMove("/api/cleanup", (r) => (r.moved ? `Moved ${plural(r.moved, "duplicate copy", "duplicate copies")} to ${r.folder}.` : "No duplicate copies to move.") +
+      (r.reviewed ? ` ${plural(r.reviewed, "group")} of duplicates marked reviewed.` : ""), { only: "duplicates" });
+  } else {
+    runMove("/api/cleanup", (r) => r.moved ? `Moved ${plural(r.moved, "photo")} to ${r.folder}.` : "Nothing needed moving.");
+  }
 }
 
-const runUndo = () => runMove("/api/undo", (r) => `Restored ${plural(r.restored, "photo")}.`);
+function runUndo(step) {
+  runMove("/api/undo", (r) => `Put ${plural(r.restored, "photo")} back.` +
+    (r.skipped ? ` ${plural(r.skipped, "photo")} ${r.skipped === 1 ? "is" : "are"} in _to_remove and stayed there: undo the clean-up first.` : ""),
+  { step });
+}
 
 /* ---------- drawer, help, toast, thumbnail size ---------- */
 

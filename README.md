@@ -4,9 +4,10 @@ Finds near-identical shots in a photo folder, picks the best one of each group, 
 removal, and lets you review every decision in a local web page. Photos are organized into trips,
 events and everyday months, and you clean up inside each one.
 
-Nothing is ever deleted, and nothing moves while you review. The final Move step puts photos you
-marked "remove" into a `_to_remove` folder inside your photo folder and, for trips and events you
-switched on, files the kept photos into a folder of their own. Undo in the page puts everything back.
+Nothing is ever deleted. Files only move in the two steps of the Finish page, each with its own undo:
+**Organize files** puts the photos of trips and events you switched on into a folder of their own (you
+can do this before reviewing), and **Clean up** puts photos you marked "remove" into a `_to_remove`
+folder inside your photo folder (duplicate copies can go first, on their own).
 
 ## How it works
 
@@ -72,35 +73,45 @@ Then open http://localhost:8765.
 
 The page follows the three steps of the work, shown as tabs at the top:
 
-- **Organize** lists every trip, event and month, newest first, each with a strip of its best photos.
-  - **Merge**: tick two or more rows and click **Merge** in the bar at the bottom. When a trip or event
-    starts at most two days after the previous one, its row offers **Merge them**. A merged collection
-    says "merged from N" and has **Split** to undo it. Merge with... in a collection's ... menu does
-    the same from the collection page.
+- **Organize** is a bento board of every trip, event and month, newest first: a collection's tile grows
+  with its photo count (100+ photos get a big tile with a mosaic of its best shots), so the big trips
+  and busy months stand out.
+  - **Merge**: tick two or more tiles and click **Merge** in the bar at the bottom. When a trip or event
+    starts at most two days after the previous one, its tile offers **Merge with ...**. A merged
+    collection says "N merged" and has **Split** to undo it. Merge with... in a collection's ... menu
+    does the same from the collection page.
   - **Not a trip / Not a day trip / Not an event**: its photos go back to the everyday month they
-    belong to; that month's row (and page) offers **Restore**.
-  - **Rename** gives a collection a name.
-- **Review** opens the next collection with groups left. Keepers come first in each group and photos
-  marked remove are dimmed. `D` marks a group reviewed and goes to the next one; reviewed groups fold
+    belong to; that month's tile (and page) offers **Restore**.
+  - **Rename** gives a collection a name. The tile's tools show on hover.
+- **Review** opens the next collection with groups left. Each group is a bento of its photos: the
+  favorite is the big tile, keepers come next, and photos marked remove have a red frame (shown in their
+  original lighting). `D` marks a group reviewed and goes to the next one; reviewed groups fold
   into one short row (**Show** opens them again). After the last group, `N` (or the button at the end
   of the page) goes to the next collection. A slim bar under the tabs keeps the progress in view.
   - **Moving photos**: select photos with the check in their corner (Shift-click for a range, `S` on
     the highlighted photo, or **Select the group** in a group's ... menu), then **Move to...** in the
     bar at the bottom to put them in another trip, event or month. Esc clears the selection.
-- **Finish** shows exactly what Move will do: photos marked remove go to `_to_remove`, and kept photos
-  of every collection with **Make a folder after cleanup** switched on (the kept photos and the video
-  half of a Live Photo) go into `<photo folder>/<date> <name>/`, for example `2026-10-16 Seattle` or
-  `2026-10-16 Trip` when you did not rename it. The switches for all collections are on this page too.
-  Move asks once more on the page; **Undo all moves** puts everything back.
+- **Finish** has two independent steps, each with an in-page confirm and its own Undo:
+  - **Organize files**: every photo of a collection with **Make a folder for these photos** switched
+    on (with the video half of a Live Photo) goes into `<photo folder>/<date> <name>/`, for example
+    `2026-10-16 Seattle`, or `2026-10-16 Trip` when you did not rename it. Do it before or after the
+    review; running it again makes the folders match the collections (renamed collections and moved
+    photos follow, photos of a collection switched off go back). The switches for all collections are
+    on this page too.
+  - **Clean up**: **Remove duplicate copies** first moves only the extra copies of exact duplicates
+    (`IMG_1 2.JPG` next to `IMG_1.JPG`) and marks those groups reviewed, which takes them off the review
+    list; then the rest of the photos marked remove go, from wherever they are (folders included). Undo
+    clean-up puts them back where they were, inside their folder if they were filed.
 
 The library views (all photos, photos of you, close calls, blurry, ...) are in the folded **Library**
 section at the top of the sidebar.
 
-These only change the page until you click Move. Edits regroup immediately (`group.py` runs on the
+These only change the page; no file moves until a Finish step. Edits regroup immediately (`group.py` runs on the
 server), so near-repeats across merged parts are grouped together. Every edit is stored with the photos
 of the collection it was made on and applies to the collection holding most of those photos, so it
-survives reruns. Filed photos get new ids on the next run (ids come from the path); the server copies
-your choices to the new ids when it files them, so a rerun never suggests removing what you kept.
+survives reruns. A filed photo stays the same photo until the next run, which gives it a new id (ids
+come from the path); the server copies your choices, Haiku's picks and reviewed marks to the new ids when
+it files them, so a rerun keeps your review.
 
 ## Decisions
 
@@ -118,7 +129,7 @@ reruns and regrouping. Ties between identical copies always go to the original f
 - `decisions.json` - your choices
 - `names.json` - your names for trips and events
 - `collection_edits.json` - merges, photos moved between collections, and collections marked as not a trip or event
-- `folders.json` - collections whose kept photos get their own folder when you move
+- `folders.json` - collections whose photos get their own folder when you organize the files
 - `reviewed.json` - groups you marked as reviewed
 - `moves.jsonl` - log of moved and filed files, used by undo
 - `previews/` - full-size JPEGs made on demand for HEIC/RAW
