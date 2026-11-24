@@ -25,6 +25,10 @@ const ICONS = {
   daytrip: '<circle cx="12" cy="12" r="3.5"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"/>',
   event: '<rect x="4" y="5.5" width="16" height="14" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
   everyday: '<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>',
+  merge: '<path d="M6 4v5a5 5 0 005 5h7"/><path d="M6 20v-5"/><path d="M15 10.5l3.5 3.5-3.5 3.5"/>',
+  split: '<path d="M12 20v-7"/><path d="M12 13L6 6M12 13l6-7"/><path d="M6 10V6h4M18 10V6h-4"/>',
+  folder: '<path d="M3.5 7.5a2 2 0 012-2h4l2 2.5h7a2 2 0 012 2v7.5a2 2 0 01-2 2h-13a2 2 0 01-2-2z"/>',
+  undo: '<path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/>',
 };
 
 function icon(name, size = 16) {
@@ -44,6 +48,7 @@ const STATE_KEY = { fav: "F", keep: "K", remove: "X" };
 const KEY_STATE = { f: "fav", k: "keep", x: "remove", u: null };
 const GROUP_KIND = { duplicate: "Duplicates", "near-duplicate": "Near-duplicates", similar: "Similar shots" };
 const COLLECTION_KIND = { trip: "Trip", daytrip: "Day trip", event: "Event", everyday: "Everyday" };
+const NOT_KIND = { trip: "Not a trip", daytrip: "Not a day trip", event: "Not an event" };
 
 // Library-wide views. Each one lists either groups or single photos.
 const LIBRARY = [
@@ -74,7 +79,7 @@ const CHUNK = 240;  // tiles rendered per batch
 const S = {
   root: "", photos: {}, order: [], groups: [], groupById: {},
   collections: [], colById: {}, newestFirst: [],
-  decisions: {}, haiku: {}, moved: new Set(), names: {}, reviewed: new Set(),
+  decisions: {}, haiku: {}, moved: new Set(), filed: {}, reviewed: new Set(),
   total: null, stats: new Map(),
   route: "overview", view: null, rendered: 0, lastDay: null, wrap: null,
   cursor: null, nextId: null, renaming: false, navRefs: new Map(),
@@ -167,14 +172,21 @@ function fmtRange(c, withYear) {
 }
 
 const colYear = (c) => fmtDate(c.start, c.timeKnown, { year: "numeric" });
-const colName = (c) => S.names[c.members[0]] || "";
+const colName = (c) => c.name || "";
+const sameAt = (c, opts) => fmtDate(c.start, c.timeKnown, opts) === fmtDate(c.end, c.timeKnown, opts);
 
+// Works for collections and for the notes of folded ones (kind, start, end, timeKnown).
 function defaultTitle(c) {
+  const oneDay = sameAt(c, { year: "numeric", month: "numeric", day: "numeric" });
   switch (c.kind) {
     case "trip": return "Trip · " + fmtRange(c);
     case "daytrip": return "Day trip · " + fmtDate(c.start, c.timeKnown, { weekday: "short", month: "short", day: "numeric" });
-    case "event": return "Event · " + fmtDate(c.start, c.timeKnown, { weekday: "long", month: "short", day: "numeric" });
-    default: return "Everyday · " + fmtDate(c.start, c.timeKnown, { month: "long" });
+    case "event": return "Event · " + (oneDay ? fmtDate(c.start, c.timeKnown, { weekday: "long", month: "short", day: "numeric" }) : fmtRange(c));
+    default: {
+      if (sameAt(c, { year: "numeric", month: "numeric" })) return "Everyday · " + fmtDate(c.start, c.timeKnown, { month: "long" });
+      const f = new Intl.DateTimeFormat(undefined, { month: "long", ...zone(c.timeKnown) });
+      return "Everyday · " + f.formatRange(new Date(c.start * 1000), new Date(c.end * 1000));
+    }
   }
 }
 const colTitle = (c) => colName(c) || defaultTitle(c);
@@ -184,8 +196,9 @@ function colMeta(c) {
   const parts = [];
   if (colName(c)) parts.push(COLLECTION_KIND[c.kind]);
   parts.push(fmtRange(c, true));
-  if (c.kind === "trip") parts.push(plural(c.days, "day"));
+  if (c.days > 1 && c.kind !== "everyday") parts.push(plural(c.days, "day"));
   if ((c.kind === "trip" || c.kind === "daytrip") && c.homeKm != null) parts.push(`about ${c.homeKm.toLocaleString()} km from home`);
+  if (c.parts > 1) parts.push(`merged from ${c.parts}`);
   return parts.join(" · ");
 }
 
@@ -373,7 +386,9 @@ function viewHead() {
       el("span", "kind-ico big " + c.kind, icon(c.kind, 22)),
       el("div", "vhead-text",
         el("div", "title-row", el("h2", null, colTitle(c)), rename),
-        el("p", "vmeta", colMeta(c)))));
+        el("p", "vmeta", colMeta(c)),
+        collectionTools(c))));
+    if (c.folded) head.append(...c.folded.map(foldedNote));
     let action = null;
     if (st.left) action = actionButton("Review next group", () => focusGroup(firstUnreviewed(), "start"), true);
     else {
@@ -385,7 +400,8 @@ function viewHead() {
         statBlock(st.photos.toLocaleString(), st.photos === 1 ? "photo" : "photos"),
         statBlock(st.fav.toLocaleString(), st.fav === 1 ? "favorite" : "favorites", "fav"),
         statBlock(st.remove.toLocaleString(), "to remove" + (st.remove ? " · " + fmtBytes(st.bytes) : ""), "remove")),
-      progressBox(st, action)));
+      progressBox(st, action)),
+      folderRow(c));
     return head;
   }
 
@@ -438,15 +454,14 @@ function startRename() {
     const name = input.value.trim();
     if (name === colName(c)) return done();
     try {
-      S.names = (await post("/api/name", { id: c.members[0], name })).names;
-      S.view.title = colTitle(c);
-      document.title = S.view.title + " - Photo cleanup";
-      paintCrumbs();
-      paintNav();
+      await S.saving;
+      await post("/api/name", { id: c.members[0], name });
+      S.renaming = false;
+      await load();  // the name also changes the folder name, which the server works out
     } catch (e) {
       toast("Could not save the name (" + e.message + "). Is the server still running?", true);
+      done();
     }
-    done();
   };
   input.onkeydown = (e) => {
     if (e.key === "Enter") commit();
@@ -457,6 +472,111 @@ function startRename() {
   $("#vhead .title-row").replaceChildren(input, saveBtn, cancelBtn);
   input.focus();
   input.select();
+}
+
+/* ---------- fixing collections: merge, split, not a trip, folder ---------- */
+
+const colOfPhoto = (pid) => S.photos[pid] && S.colById[S.photos[pid].collection];
+
+function collectionTools(c) {
+  const tools = el("div", "col-tools");
+  const tool = (ico, label, title, onClick) => {
+    const b = el("button", "btn ghost small", icon(ico, 14), label);
+    b.title = title;
+    b.onclick = onClick;
+    tools.append(b);
+  };
+  tool("merge", "Merge…", "Join this with other trips, events or months", () => openMerge(c));
+  if (c.parts > 1) tool("split", "Split", `Undo the merge: back to the ${c.parts} collections it was made of`,
+    () => editCollections("split", [c.members[0]], "Split back into the original collections."));
+  if (NOT_KIND[c.kind]) tool("x", NOT_KIND[c.kind], "Its photos go back to the everyday month they belong to",
+    () => editCollections("dissolve", [c.members[0]]));
+  return tools;
+}
+
+function foldedNote(f) {
+  const restore = el("button", "btn small", icon("undo", 14), "Restore");
+  restore.onclick = () => editCollections("restore", f.anchors, "Restored as " + COLLECTION_KIND[f.kind].toLowerCase() + ".");
+  return el("div", "note",
+    el("span", null, `Includes ${plural(f.photos, "photo")} from `, el("b", null, defaultTitle(f)),
+      `, which you marked as ${NOT_KIND[f.kind].replace("Not ", "not ")}.`),
+    restore);
+}
+
+function folderPlan(c) {
+  let toFile = 0, filed = 0;
+  for (const id of c.members) {
+    if (S.filed[id]) filed++;
+    else if (live(id) && eff(id) !== "remove") toFile++;
+  }
+  return { toFile, filed };
+}
+
+function folderRow(c) {
+  const input = el("input");
+  input.type = "checkbox";
+  input.setAttribute("role", "switch");
+  input.checked = !!c.folderOn;
+  input.onchange = () => {
+    c.folderOn = input.checked;
+    save("/api/folder", { id: c.members[0], on: c.folderOn });
+    refreshCounts();
+  };
+  const { toFile, filed } = folderPlan(c);
+  const where = el("code", null, `${baseName(S.root)}/${c.folder}/`);
+  let hint;
+  if (!c.folderOn) hint = el("span", null, "Kept photos stay where they are.");
+  else if (toFile) hint = el("span", null, `${plural(toFile, "kept photo")} will move to `, where, " when you click Move.");
+  else hint = el("span", null, "Nothing left to move to ", where, ".");
+  if (filed) hint.append(` ${plural(filed, "photo")} ${filed === 1 ? "is" : "are"} already there.`);
+  return el("div", "folder-row" + (c.folderOn ? " on" : ""),
+    el("label", "switch", input, el("span", "track", el("i")), el("span", "switch-label", icon("folder", 15), "Make a folder after cleanup")),
+    el("span", "folder-hint", hint));
+}
+
+// Collection edits regroup on the server, which renumbers collections: reload, then open the result.
+async function editCollections(op, ids, message) {
+  try {
+    await S.saving;
+    const r = await post("/api/collections", { op, ids });
+    if (S.lb) closeLightbox();
+    await load();
+    const c = colOfPhoto(r.anchor);
+    if (c) go(c.id);
+    toast(op === "dissolve" ? `Moved into ${c ? colTitle(c) : "everyday"}. You can restore it from there.` : message);
+  } catch (e) {
+    toast("That did not work (" + e.message + "). Is the server still running?", true);
+  }
+}
+
+function openMerge(c) {
+  const dlg = $("#merge");
+  const others = S.collections.filter((o) => o !== c)
+    .sort((a, b) => Math.abs(a.start - c.start) - Math.abs(b.start - c.start));
+  const mergeBtn = $("#merge-go");
+  const picked = new Set();
+  const paint = () => {
+    mergeBtn.disabled = !picked.size;
+    mergeBtn.textContent = picked.size ? `Merge ${plural(picked.size + 1, "collection")}` : "Merge";
+  };
+  const list = $("#merge-list");
+  list.replaceChildren(...others.map((o) => {
+    const box = el("input");
+    box.type = "checkbox";
+    box.onchange = () => { if (box.checked) picked.add(o); else picked.delete(o); paint(); };
+    return el("label", "pick", box,
+      el("span", "kind-ico " + o.kind, icon(o.kind, 15)),
+      el("span", "pick-text", el("span", "pick-title", colTitle(o)),
+        el("span", "pick-sub", [fmtRange(o, true), plural(o.members.length, "photo")].join(" · "))));
+  }));
+  $("#merge-title").textContent = "Merge " + colTitle(c) + " with…";
+  mergeBtn.onclick = () => {
+    closeDialog(dlg);
+    editCollections("merge", [c, ...picked].map((o) => o.members[0]), "Merged.");
+  };
+  paint();
+  openDialog(dlg);
+  list.scrollTop = 0;
 }
 
 /* ---------- navigator ---------- */
@@ -534,15 +654,25 @@ function paintCrumbs() {
   crumbs.replaceChildren(home, el("span", "sep", "/"), el("span", "here", v.title));
 }
 
+// What the Move button will do: marked photos to _to_remove, kept photos into their collection folders.
+function movePlan() {
+  const folders = S.collections.filter((c) => c.folderOn).map((c) => ({ c, n: folderPlan(c).toFile })).filter((f) => f.n);
+  return { remove: S.total.remove, bytes: S.total.bytes, folders, toFile: folders.reduce((n, f) => n + f.n, 0) };
+}
+
 function paintApply() {
-  const t = S.total;
+  const m = movePlan();
+  const n = m.remove + m.toFile;
   const apply = $("#apply");
-  apply.replaceChildren(...(t.remove
-    ? ["Move " + t.remove.toLocaleString(), el("span", "long", t.remove === 1 ? "marked photo" : "marked photos")]
+  apply.replaceChildren(...(n
+    ? ["Move " + n.toLocaleString(), el("span", "long", m.toFile ? (n === 1 ? "photo" : "photos") : n === 1 ? "marked photo" : "marked photos")]
     : ["Nothing to move"]));
-  apply.disabled = !t.remove;
-  apply.title = t.remove ? `Move ${plural(t.remove, "photo")} (${fmtBytes(t.bytes)}) into _to_remove. Nothing is deleted.` : "";
-  $("#undo").hidden = S.moved.size === 0;
+  apply.disabled = !n;
+  const parts = [];
+  if (m.remove) parts.push(`${plural(m.remove, "marked photo")} (${fmtBytes(m.bytes)}) into _to_remove`);
+  if (m.toFile) parts.push(`${plural(m.toFile, "kept photo")} into ${plural(m.folders.length, "folder")}`);
+  apply.title = n ? "Move " + parts.join(", and ") + ". Nothing is deleted." : "";
+  $("#undo").hidden = S.moved.size + Object.keys(S.filed).length === 0;
 }
 
 function refreshCounts() {
@@ -842,15 +972,20 @@ function reviewAndAdvance() {
   else toast(S.view.type === "collection" ? "All groups in this collection are reviewed." : "All groups here are reviewed.");
 }
 
-const helpOpen = () => !$("#help").hidden;
-function showHelp(on) {
-  $("#help").hidden = !on;
-  if (on) $("#help [data-close]").focus();
+const openDialogEl = () => document.querySelector(".dialog:not([hidden])");
+function openDialog(dlg) {
+  dlg.hidden = false;
+  dlg.querySelector("[data-close]").focus();
 }
+function closeDialog(dlg) {
+  dlg.hidden = true;
+}
+const showHelp = (on) => (on ? openDialog($("#help")) : closeDialog($("#help")));
 
 document.addEventListener("keydown", (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey || !S.view) return;
-  if (helpOpen()) { if (e.key === "Escape") showHelp(false); return; }
+  const dlg = openDialogEl();
+  if (dlg) { if (e.key === "Escape") closeDialog(dlg); return; }
   const tag = e.target.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
@@ -949,6 +1084,7 @@ function paintLightbox() {
   parts.push(src === "you" ? "set by you" : src === "haiku" ? "suggested by Haiku" : "suggested automatically");
   if (src === "auto" && p.reason) parts.push(p.reason.toLowerCase());
   if (S.moved.has(id)) parts.push("moved to _to_remove");
+  if (S.filed[id]) parts.push("moved to " + S.filed[id].split("/").slice(0, -1).join("/") + "/");
   const why = S.haiku[id] && S.haiku[id].why;
   const meta = $("#lb-meta");
   meta.replaceChildren(
@@ -1014,15 +1150,26 @@ async function runMove(url, describe) {
 }
 
 $("#apply").onclick = () => {
-  const { remove, bytes } = S.total;
-  if (!remove) return;
-  const ok = confirm(`Move ${remove.toLocaleString()} photos (${fmtBytes(bytes)}) marked "Remove" into\n\n${S.root}/_to_remove\n\nNothing is deleted. You can undo this from this page, or delete that folder yourself once you are sure.`);
-  if (ok) runMove("/api/apply", (r) => `Moved ${r.moved} photos to ${r.folder}`);
+  const m = movePlan();
+  if (!m.remove && !m.toFile) return;
+  const lines = [];
+  if (m.remove) lines.push(`Move ${plural(m.remove, "photo")} (${fmtBytes(m.bytes)}) marked "Remove" into\n${S.root}/_to_remove`);
+  if (m.toFile) lines.push(`Move ${plural(m.toFile, "kept photo")} into their folders:\n` +
+    m.folders.map((f) => `  ${f.c.folder}/  (${plural(f.n, "photo")})`).join("\n"));
+  const ok = confirm(lines.join("\n\n") + "\n\nNothing is deleted. You can undo this from this page, or delete _to_remove yourself once you are sure.");
+  if (!ok) return;
+  runMove("/api/apply", (r) => {
+    const done = [];
+    if (r.moved) done.push(`Moved ${plural(r.moved, "photo")} to ${r.folder}`);
+    if (r.filed) done.push(`filed ${plural(r.filed, "photo")} into ${plural(r.folders, "folder")}`);
+    return done.length ? done.join(", ") + "." : "Nothing needed moving.";
+  });
 };
 
 $("#undo").onclick = () => {
-  if (!confirm(`Put all ${S.moved.size.toLocaleString()} moved photos back where they were?`)) return;
-  runMove("/api/undo", (r) => `Restored ${r.restored} photos`);
+  const n = S.moved.size + Object.keys(S.filed).length;
+  if (!confirm(`Put all ${plural(n, "moved photo")} back where they were?`)) return;
+  runMove("/api/undo", (r) => `Restored ${plural(r.restored, "photo")}.`);
 };
 
 /* ---------- drawer, help, toast, thumbnail size ---------- */
@@ -1048,7 +1195,9 @@ function toast(msg, err) {
 }
 
 $("#help-btn").onclick = () => showHelp(true);
-$("#help").addEventListener("click", (e) => { if (e.target.id === "help" || e.target.dataset.close != null) showHelp(false); });
+for (const dlg of document.querySelectorAll(".dialog")) {
+  dlg.addEventListener("click", (e) => { if (e.target === dlg || e.target.closest("[data-close]")) closeDialog(dlg); });
+}
 
 const size = $("#size");
 size.value = localStorage.getItem("tile") || size.value;
@@ -1104,7 +1253,7 @@ async function load() {
   S.decisions = d.decisions;
   S.haiku = d.haiku || {};
   S.moved = new Set(d.moved);
-  S.names = d.names || {};
+  S.filed = d.filed || {};
   S.reviewed = new Set(d.reviewed || []);
   $("#root").textContent = "\u200e" + d.root;  // left-to-right mark: the path is clipped from its start
   $("#root").title = d.root;

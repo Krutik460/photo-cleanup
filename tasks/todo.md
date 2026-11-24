@@ -49,3 +49,95 @@ Real folder (2026-11-24): `/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026` -> `..
 - 316 groups, 42 collections (4 trips, 11 day trips, 15 events, 12 everyday months). On-device: 1,162 to remove.
 - Haiku: 191 groups in 11 batches, ~1.14M tokens, 2.7 min, merged with 0 problems; it rescued 84 photos (1,078 to remove after merge). Every group with you keeps a photo of you.
 - Fixed along the way: a group card without a Haiku note rendered the text "null" (native append with null); app files were cached heuristically by the browser, so `server.py` now sends `Cache-Control: no-cache` for them.
+
+# Fix up collections + folder per collection - plan
+
+Three additions to the review page:
+- merge trips/events/months into one collection,
+- mark a collection that is not really a trip or event, so its photos go back to everyday,
+- a per-collection switch "Make a folder after cleanup" that files the kept photos into a folder named
+  after it.
+
+Everything is page state until the very end: merges, "not a trip" marks and folder switches only
+change what the page shows. No file moves until you click Move once the whole review is finished.
+
+## Collection edits (merge, not a trip)
+
+- Storage: `<out>/collection_edits.json`:
+  `{"merges": [[[photoId, ...] per part], ...], "not_collections": [{"photos", "names", "folders"}, ...]}`.
+  An edit lists the photos of the collections it was made on and applies to the collection holding
+  most of them now, so it stays valid when a rerun adds, removes or regroups photos.
+- Applied in `group.py` right after `build_collections`, before grouping:
+  1. merges: a merged collection gets recomputed start/end/days/center/distance from home, `parts`
+     and its kind by priority: away (trip if it spans several days, else day trip) > event > everyday;
+  2. "not a trip/event": that collection's photos fold into the everyday collection of their month(s)
+     (created if missing); the everyday collection lists what was folded in, so the page can offer
+     "Restore".
+  Grouping then runs on the edited collections: near-repeats across merged parts can group together.
+- Server: `POST /api/collections {op: "merge" | "split" | "dissolve" | "restore", ids}` updates the
+  file, reruns `group.py` (well under a second) and returns a photo of the resulting collection.
+  When merging, if the earliest part has no name but another part does, that name moves over.
+- Decisions, reviewed marks and Haiku picks are keyed by photo id, so nothing you did is lost. New
+  groups that span old parts have no Haiku pick until `prepare_review.py` runs again.
+- Page (collection header):
+  - "Merge..." opens a picker of the other collections, nearest in time first, with checkboxes;
+    "Merge N" confirms and opens the merged collection. A merged one shows "Merged from N" + "Split".
+  - "Not a trip" / "Not an event" (hidden for everyday months) folds it into everyday and opens the
+    month it went to; that month shows "Includes photos from Trip · Oct 16 - 19 · Restore".
+  - Titles of multi-day events and multi-month everyday collections show a date range.
+
+## Folder after cleanup
+
+- Storage: `<out>/folders.json`, `[[photoId, ...] per collection]`; names likewise in `names.json`. A switch in the collection header, with
+  "N kept photos will move to <photo folder>/<folder name>/ when you click Move" under it.
+- Folder name: see open question. Sanitized for the file system (no `/` or `:`, no leading dot, max 80
+  chars). An existing folder with that name is reused; file name clashes get " (2)".
+- Move button (the final step): photos marked remove -> `_to_remove` (as today), then kept photos (fav
+  and keep) of each collection with the switch on -> its folder, together with a same-name Live Photo
+  `.MOV`. The confirm dialog lists both. Every file move is logged in `moves.jsonl` (`op: "file"`)
+  and Undo puts everything back.
+- Server state: `moved` (in `_to_remove`, dimmed) and `filed` (in a folder, shown normally with a
+  folder badge); the full-size view reads each photo from where it is now.
+- Reruns: photo ids come from the path, so filed photos get new ids on the next `run.sh`. When filing,
+  the server also writes your state under the new ids (decision = what you kept, reviewed, names,
+  collection edits, folder switches), so a rerun never suggests removing what you kept and filed.
+  The old entries stay, so the page keeps working until the rerun and after an undo.
+
+## Steps
+
+- [x] C1. `group.py`: read `collection_edits.json`; merges, "not a trip", `parts`/`folded` fields
+- [x] C2. `server.py`: `/api/collections` (merge, split, dissolve, restore; rerun group.py; carry names)
+- [x] C3. Page: Merge picker, Merged from N + Split, Not a trip + Restore, date-range titles
+- [x] F1. `server.py`: `folders.json`, `/api/folder`, filing in `/api/apply`, `moved` + `filed`, undo, id carry-over
+- [x] F2. Page: switch + destination preview, confirm dialog, folder badge
+- [x] V1. Verify on a scratch copy of ~80 real photos (never the real folder): merge, split, not a
+      trip, restore, rename, switch, Move, Undo, rerun after filing keeps decisions; desktop and narrow
+- [x] V2. README: the new state files and the final Move step
+
+## Decided
+
+1. Folder name: date first, `2026-10-16 Seattle`, or `2026-10-16 Trip` when not renamed (everyday: `2026-10 Everyday`).
+2. Live Photos: the same-name `.MOV` moves with a filed photo (only 4 pairs in the 2026 folder, no `.AAE`).
+
+## Review
+
+Built as planned, with two changes found during verification:
+- Edits are stored with all photos of the collection they were made on (merges per part, names and
+  folder switches per collection) and apply to the collection holding most of those photos. The first
+  version matched "any photo", and a rerun after Move pulled a whole everyday month into a merged trip:
+  one trip photo without GPS lost its neighbors and drifted into the month. Drifted photos are now
+  pulled back on their own.
+- `group.py` was not deterministic: exact copies tie on score and their order came from a Python set, so
+  210 photos flipped their automatic state between two identical runs. Ties now go to the original
+  name, then the shorter path. On the real library this only swapped identical copies (144 photos,
+  removal count unchanged at 1,037).
+
+Verified on a scratch copy of 126 real photos (`scenario.py`, all checks pass): merge 3, rename, folder
+switch, merge again (keeps 4 parts), split, re-merge, not an event + restore (name and folder switch
+come back), Move (95 to `_to_remove`, 11 filed into 2 folders, Live Photo videos along), rerun (merge,
+name and switch survive; filed photos stay kept; no month pulled in), Undo (all 130 files back, folders
+removed). Checked in the browser at desktop and phone width. Real library regrouped and its server
+restarted on the new code; both existing names resolve.
+
+Known, not changed: an event needs 20+ photos, counted after cleanup, so a rerun after Move can turn a
+cleaned-up event into an everyday month (seen in the scenario: 53 -> 8 photos).

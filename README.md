@@ -4,8 +4,9 @@ Finds near-identical shots in a photo folder, picks the best one of each group, 
 removal, and lets you review every decision in a local web page. Photos are organized into trips,
 events and everyday months, and you clean up inside each one.
 
-Nothing is ever deleted. The final step only moves photos you marked "remove" into a `_to_remove`
-folder inside your photo folder, and that move can be undone from the page.
+Nothing is ever deleted, and nothing moves while you review. The final Move step puts photos you
+marked "remove" into a `_to_remove` folder inside your photo folder and, for trips and events you
+switched on, files the kept photos into a folder of their own. Undo in the page puts everything back.
 
 ## How it works
 
@@ -67,11 +68,30 @@ python3 server.py "<photo folder>" "<output folder>" 8765
 
 Then open http://localhost:8765.
 
+## Fixing trips and events
+
+The collection header in the page has:
+
+- **Merge…**: join a trip, event or month with others (a picker lists them, nearest in time first).
+  A merged collection shows "merged from N" and a **Split** button that undoes the merge.
+- **Not a trip / Not a day trip / Not an event**: its photos go back to the everyday month they
+  belong to; that month shows a note with **Restore**.
+- **Make a folder after cleanup**: when you click Move, the kept photos (and the video half of a
+  Live Photo) go into `<photo folder>/<date> <name>/`, for example `2026-10-16 Seattle` or
+  `2026-10-16 Trip` when you did not rename it.
+
+These only change the page until you click Move. Edits regroup immediately (`group.py` runs on the
+server), so near-repeats across merged parts are grouped together. Every edit is stored with the photos
+of the collection it was made on and applies to the collection holding most of those photos, so it
+survives reruns. Filed photos get new ids on the next run (ids come from the path); the server copies
+your choices to the new ids when it files them, so a rerun never suggests removing what you kept.
+
 ## Decisions
 
 A photo's state is, in order of priority: your choice in the page, else Haiku's pick, else the
 on-device pick. Your choices are saved on every click in `<output folder>/decisions.json` and survive
-reruns and regrouping.
+reruns and regrouping. Ties between identical copies always go to the original file name
+(`IMG_1.JPG` over `IMG_1 2.JPG`), so reruns pick the same favorite.
 
 ## Output folder
 
@@ -81,8 +101,10 @@ reruns and regrouping.
 - `review_batches/`, `review_sheets/`, `review_raw/`, `haiku/` - Haiku review
 - `decisions.json` - your choices
 - `names.json` - your names for trips and events
+- `collection_edits.json` - merges and collections marked as not a trip or event
+- `folders.json` - collections whose kept photos get their own folder when you move
 - `reviewed.json` - groups you marked as reviewed
-- `moves.jsonl` - log of moved files, used by undo
+- `moves.jsonl` - log of moved and filed files, used by undo
 - `previews/` - full-size JPEGs made on demand for HEIC/RAW
 
 ## Tuning

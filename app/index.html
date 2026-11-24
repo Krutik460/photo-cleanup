@@ -67,11 +67,23 @@
     <ul class="legend">
       <li><span class="swatch fav"></span>Favorite: the best shot, kept</li>
       <li><span class="swatch keep"></span>Keep</li>
-      <li><span class="swatch remove"></span>Remove: dimmed, will be moved to _to_remove</li>
+      <li><span class="swatch remove"></span>Remove: red border, will be moved to _to_remove</li>
       <li><span class="swatch you"></span>Blue dot: you changed the suggestion</li>
     </ul>
     <p class="muted">Shortcuts act on the highlighted photo. Hover or click a photo to highlight it.</p>
     <button class="btn" data-close>Close</button>
+  </div>
+</div>
+
+<div class="dialog" id="merge" hidden role="dialog" aria-labelledby="merge-title">
+  <div class="card wide">
+    <h2 id="merge-title">Merge with…</h2>
+    <p class="muted">Pick the trips, events or months that belong together, nearest in time first. Only this page changes; no files move.</p>
+    <div class="pick-list" id="merge-list"></div>
+    <div class="dialog-actions">
+      <button class="btn ghost" data-close>Cancel</button>
+      <button class="btn primary" id="merge-go" disabled>Merge</button>
+    </div>
   </div>
 </div>
 

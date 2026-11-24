@@ -2,7 +2,9 @@
 
 Reads <out>/analysis.jsonl and <out>/neighbors.json (written by ./analyze) and writes <out>/groups.json.
 User decisions live in <out>/decisions.json and Haiku picks in <out>/haiku/*.json; this script never
-touches them, so regrouping is always safe.
+touches them, so regrouping is always safe. Your fixes to trips and events from the review page
+(<out>/collection_edits.json: merges, and collections that are not really a trip or event) are applied
+before grouping.
 
 Usage: python3 group.py <out-folder>
 """
@@ -10,7 +12,9 @@ Usage: python3 group.py <out-folder>
 import json
 import math
 import os
+import re
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 
 # Feature-print distance thresholds (unit-vector Euclidean; 0 = identical, ~1.06 = typical unrelated pair).
@@ -36,6 +40,14 @@ SECOND_OF_YOU_MARGIN = 0.10  # keep a second shot of you when it scores within t
 SECOND_OF_YOU_DISTANCE = 0.30  # ...and is at least this different from it (not a near-copy)
 EVENT_REPEAT_DISTANCE = 0.45  # without you: near-repeats anywhere in one trip or event form a group
 LOW_QUALITY_PERCENTILE = 0.35  # singles without you scoring in the bottom 35% are suggested for removal
+
+
+# "IMG_1.JPG" is the original of "IMG_1 2.JPG" (Finder), "IMG_1 copy.JPG" and "IMG_1(1).JPG" (downloads).
+COPY_NAME = re.compile(r"( \d{1,2}| copy( \d+)?|\(\d+\))$", re.IGNORECASE)
+
+
+def is_copy_name(rel):
+    return bool(COPY_NAME.search(os.path.splitext(os.path.basename(rel))[0]))
 
 
 def load(out):
@@ -172,7 +184,7 @@ def find_home(photos):
     return centroid(pts)
 
 
-def build_collections(photos):
+def build_collections(photos, edits):
     """Split the timeline into trips (away from home), events (busy days at home) and everyday months."""
     ordered = sorted(photos.values(), key=lambda p: (p["time"], p["rel"]))
     home = find_home(ordered)
@@ -231,12 +243,16 @@ def build_collections(photos):
                 collections.append(everyday[key])
             everyday[key]["photos"] += ps
 
+    collections = apply_edits(collections, edits)
+
     out = []
-    for c in sorted(collections, key=lambda c: c["photos"][0]["time"]):
-        ps = sorted(c["photos"], key=lambda p: (p["time"], p["rel"]))
+    for c in collections:
+        c["photos"].sort(key=lambda p: (p["time"], p["rel"]))
+    for c in sorted(collections, key=lambda c: (c["photos"][0]["time"], c["photos"][0]["rel"])):
+        ps = c["photos"]
         pts = [p["gps"] for p in ps if p.get("gps")]
         center = centroid(pts)
-        out.append({
+        summary = {
             "kind": c["kind"],
             "start": ps[0]["time"],
             "end": ps[-1]["time"],
@@ -245,15 +261,104 @@ def build_collections(photos):
             "center": [round(x, 4) for x in center] if center else None,
             "homeKm": round(km(center, home)) if center and home else None,
             "members": [p["id"] for p in ps],
-        })
+        }
+        if c.get("parts", 1) > 1:
+            summary["parts"] = c["parts"]
+        if c.get("folded"):
+            summary["folded"] = sorted(c["folded"].values(), key=lambda f: f["start"])
+        out.append(summary)
     for i, c in enumerate(out):
         c["id"] = f"c{i + 1}"
     return out, home
 
 
+def load_edits(out):
+    """<out>/collection_edits.json, written by the review page:
+    {"merges": [[[photoId, ...] per part], ...],
+     "not_collections": [{"photos": [photoId, ...], "names": [...], "folders": [...]}, ...]}."""
+    try:
+        with open(os.path.join(out, "collection_edits.json")) as f:
+            edits = json.load(f)
+    except FileNotFoundError:
+        edits = {}
+    return {"merges": edits.get("merges") or [], "not_collections": edits.get("not_collections") or []}
+
+
+def home_of(listed, owner):
+    """The collection holding most of the listed photos now, or None when none of them are left."""
+    where = Counter(owner[pid] for pid in listed if pid in owner)
+    return where.most_common(1)[0][0] if where else None
+
+
+def apply_edits(collections, edits):
+    """Apply your fixes from the review page to the detected collections ({kind, photos} each).
+
+    An edit lists the photos of the collections it was made on and applies to the collection holding
+    most of them now, so it survives reruns that add, remove or regroup photos. A photo that drifted
+    into another collection (say an everyday month) never drags that whole collection along.
+    1. merges: each part's collection joins the merge, and drifted photos of a part are pulled back;
+    2. not_collections: a trip, day trip or event holding most of the listed photos is not really one,
+       so its photos fold into the everyday collection of their month. That collection remembers what
+       was folded in ("folded"), so the page can offer to restore it.
+    """
+    for parts in edits["merges"]:
+        owner = {p["id"]: i for i, c in enumerate(collections) for p in c["photos"]}
+        homes, drifted, found = set(), set(), 0
+        for part in parts:
+            home = home_of(part, owner)
+            if home is None:
+                continue
+            found += 1
+            homes.add(home)
+            drifted.update(pid for pid in part if pid in owner and owner[pid] != home)
+        drifted = {pid for pid in drifted if owner[pid] not in homes}
+        if len(homes) < 2 and not drifted:
+            continue
+        merged = [collections[i] for i in sorted(homes)]
+        ps = [p for c in merged for p in c["photos"]]
+        for i, c in enumerate(collections):
+            if i not in homes and drifted:
+                ps += [p for p in c["photos"] if p["id"] in drifted]
+                c["photos"] = [p for p in c["photos"] if p["id"] not in drifted]
+        kinds = {c["kind"] for c in merged}
+        if kinds & {"trip", "daytrip"}:
+            kind = "trip" if len({day_of(p) for p in ps}) > 1 else "daytrip"
+        elif "event" in kinds:
+            kind = "event"
+        else:
+            kind = "everyday"
+        collections = [c for i, c in enumerate(collections) if i not in homes and c["photos"]]
+        collections.append({"kind": kind, "photos": ps, "parts": found})
+
+    owner = {p["id"]: i for i, c in enumerate(collections) for p in c["photos"]}
+    hits = {}  # collection index -> one photo per mark on it (the page sends these back to restore)
+    for mark in edits["not_collections"]:
+        home = home_of(mark["photos"], owner)
+        if home is not None and collections[home]["kind"] != "everyday":
+            hits.setdefault(home, []).append(next(pid for pid in mark["photos"] if owner.get(pid) == home))
+    everyday = {}
+    for i, c in enumerate(collections):
+        if c["kind"] == "everyday" and i not in hits:
+            for p in c["photos"]:
+                everyday.setdefault(day_of(p).strftime("%Y-%m"), c)
+    kept = [c for i, c in enumerate(collections) if i not in hits]
+    for i, anchors in sorted(hits.items()):
+        ps = sorted(collections[i]["photos"], key=lambda p: (p["time"], p["rel"]))
+        note = {"anchors": anchors, "kind": collections[i]["kind"], "start": ps[0]["time"], "end": ps[-1]["time"],
+                "timeKnown": all(bool(p.get("taken")) for p in ps), "photos": len(ps)}
+        for p in ps:
+            key = day_of(p).strftime("%Y-%m")
+            if key not in everyday:
+                everyday[key] = {"kind": "everyday", "photos": []}
+                kept.append(everyday[key])
+            everyday[key].setdefault("folded", {})[anchors[0]] = note
+            everyday[key]["photos"].append(p)
+    return kept
+
+
 def main(out):
     photos, neighbors, has_me = load(out)
-    collections, home = build_collections(photos)
+    collections, home = build_collections(photos, load_edits(out))
     coll_of_photo = {pid: c for c in collections for pid in c["members"]}
     clusters, dist = build_groups(photos, neighbors, coll_of_photo)
 
@@ -275,7 +380,9 @@ def main(out):
             return (p["score"] + 0.05 * (p["width"] * p["height"] / max_px) + 0.01 * (p["size"] / max_size)
                     + (ME_RANK_BONUS if p.get("me") else 0))
 
-        members.sort(key=rank, reverse=True)
+        # Ties (exact copies score the same) go to the original file name, then the shorter path, so
+        # reruns always pick the same favorite.
+        members.sort(key=lambda m: (-rank(m), is_copy_name(photos[m]["rel"]), len(photos[m]["rel"]), photos[m]["rel"]))
         kind = group_kind(members, dist, photos)
         if kind == "duplicate":
             close = False
@@ -304,7 +411,7 @@ def main(out):
             "time": min(photos[m]["time"] for m in members),
         })
 
-    groups.sort(key=lambda g: g["time"])
+    groups.sort(key=lambda g: (g["time"], photos[g["members"][0]]["rel"]))
     group_of = {}
     for i, g in enumerate(groups):
         g["id"] = f"g{i + 1}"
