@@ -20,6 +20,15 @@ struct PhotoCleanupApp: App {
                 Button("Scan for New Photos") { model.scan() }
                     .keyboardShortcut("r")
                     .disabled(model.session == nil || model.isBusy)
+                Button("Import Review from the Old Scripts…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.message = "Choose the output folder of the old photo cleanup scripts (the one with analysis.jsonl)"
+                    panel.prompt = "Import"
+                    if panel.runModal() == .OK, let url = panel.url { model.importOldReview(from: url) }
+                }
+                .disabled(model.session == nil || model.isBusy)
                 Button("Close Library") { model.closeLibrary() }
                     .keyboardShortcut("w", modifiers: [.command, .shift])
                     .disabled(model.session == nil)

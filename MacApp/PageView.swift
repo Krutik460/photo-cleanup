@@ -13,6 +13,9 @@ struct PageView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(context.coordinator.handler, forURLScheme: SchemeHandler.scheme)
+        // Lets app.css drop what the window already shows (the folder's name).
+        config.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('in-app')",
+                                                                injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let view = WKWebView(frame: .zero, configuration: config)
         view.navigationDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true

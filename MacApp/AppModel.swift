@@ -10,6 +10,9 @@ struct LibraryInfo: Identifiable, Equatable {
     let root: String
     let photos: Int
     let available: Bool
+    var summary: LibrarySummary? = nil
+    var lastOpened: Date? = nil
+    var thumbsDir: URL? = nil
 }
 
 /// The open library: its database, the page's data and the page's server.
@@ -67,7 +70,45 @@ final class AppModel: ObservableObject {
     /// Groups of similar shots Claude has not looked at yet.
     @Published var pendingGroups = 0
     @Published var showOpinionPanel = false
+    /// The opening screen is up until its checks pass or the user carries on.
+    @Published var showLaunch = true
     private var opinionTask: Task<Void, Never>?
+
+    func finishLaunch() {
+        withAnimation(Theme.spring) { showLaunch = false }
+    }
+
+    /// Something worth telling the user that is not an error.
+    @Published var notice: String?
+
+    /// Brings the review done with the old scripts (their output folder) into the open library.
+    /// Only reads that folder; refuses when this library already has choices of its own.
+    func importOldReview(from folder: URL) {
+        guard let session, !isBusy else { return }
+        do {
+            let r = try importLegacyReview(from: folder, into: session.library)
+            try session.catalog.regroup()
+            refreshPending()
+            pageVersion += 1
+            var lines = ["\(r.matched.formatted()) of \(r.oldPhotos.formatted()) photos from the old review were found in this folder."]
+            if r.gone + r.inRemoveFolder + r.notFound > 0 {
+                lines.append("\(r.gone.formatted()) had been removed by the old tool, \(r.inRemoveFolder.formatted()) are in _to_remove, and \(r.notFound.formatted()) are no longer in this folder.")
+            }
+            lines.append("Imported \(r.decisions.formatted()) choices, \(r.reviewed.formatted()) reviewed marks, \(r.picks.formatted()) second opinions, \(r.names.formatted()) names and \((r.merges + r.moves + r.notCollections).formatted()) collection edits.")
+            notice = lines.joined(separator: "\n\n")
+            // The photo of you the old tool used, when this library has none yet.
+            let me = Me(store: session.library.store)
+            if !me.hasReference, let embedder, let path = r.referencePhoto, FileManager.default.fileExists(atPath: path) {
+                Task {
+                    _ = try? await me.setReference(photos: [URL(fileURLWithPath: path)], embedder: embedder)
+                    try? session.catalog.regroup()
+                    pageVersion += 1
+                }
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
     @Published var session: Session?
     @Published var pipeline: PipelineState?
     @Published var lastScan: ScanSummary?
@@ -160,13 +201,40 @@ final class AppModel: ObservableObject {
         libraries = dirs.compactMap { dir -> LibraryInfo? in
             guard let library = try? Library.open(at: dir) else { return nil }
             return LibraryInfo(id: dir.lastPathComponent, dir: dir, name: library.name, root: library.root.path,
-                               photos: library.photoCount, available: library.isPhotoFolderAvailable)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                               photos: library.photoCount, available: library.isPhotoFolderAvailable,
+                               summary: library.summary, lastOpened: library.lastOpened, thumbsDir: library.thumbsDir)
+        }.sorted {
+            // Most recently opened first; libraries never opened go last, by name.
+            switch ($0.lastOpened, $1.lastOpened) {
+            case let (a?, b?): a > b
+            case (_?, nil): true
+            case (nil, _?): false
+            case (nil, nil): $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+        }
     }
+
+    /// Forgets a photo folder: its library (database, thumbnails) goes to the Trash. The photos are
+    /// not touched.
+    func removeLibrary(_ info: LibraryInfo) {
+        guard session?.info.id != info.id,
+              info.dir.deletingLastPathComponent().standardizedFileURL.path == librariesDir.standardizedFileURL.path else { return }
+        do {
+            try FileManager.default.trashItem(at: info.dir, resultingItemURL: nil)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        refreshLibraries()
+    }
+
+    /// Space clean-ups have taken out of your photos, over every library.
+    var totalSavedBytes: Int { libraries.reduce(0) { $0 + ($1.summary?.savedBytes ?? 0) } }
+    var totalWaitingBytes: Int { libraries.reduce(0) { $0 + ($1.summary?.waitingBytes ?? 0) } }
 
     func open(_ info: LibraryInfo) {
         do {
             session = try Session(info: info, library: try Library.open(at: info.dir), appDir: appDir)
+            session?.library.markOpened()
             lastScan = nil
             opinionLog = []
             refreshPending()
@@ -178,6 +246,9 @@ final class AppModel: ObservableObject {
     func closeLibrary() {
         scanTask?.cancel()
         opinionTask?.cancel()
+        // Choices and reviewed marks made since the last regroup change the home screen's numbers.
+        _ = try? session?.catalog.saveSummary()
+        session?.library.markOpened()
         session = nil
         pendingGroups = 0
         refreshLibraries()

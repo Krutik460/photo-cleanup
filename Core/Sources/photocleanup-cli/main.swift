@@ -6,6 +6,7 @@ let usage = """
 usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.mlmodelc>] [--me <photo of you> ...]
        photocleanup-cli second-opinion <library-dir> [--limit <batches>] [--model haiku] [--claude <path>]
        photocleanup-cli import-review <library-dir> <old output folder> [--replace]   review done with the old scripts
+       photocleanup-cli summary | clean-up | undo-clean-up <library-dir>              the library at a glance; the clean-up step
        photocleanup-cli serve <library-dir> <app-folder> [port]     the review page on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but
@@ -81,6 +82,23 @@ case "second-opinion":
         let p = try await SecondOpinionRun(cli: cli, model: model).run(catalog: catalog, limit: limit) { print($0.log) }
         print(String(format: "%d of %d batches done, %d failed; %d groups reviewed; %d input and %d output tokens, reported cost %.4f",
                      p.done - p.failed, p.total, p.failed, p.groups, p.usage.inputTokens, p.usage.outputTokens, p.usage.costUSD))
+    } catch {
+        fail(error.localizedDescription)
+    }
+case "summary", "clean-up", "undo-clean-up":
+    guard args.count == 2 else { fail(usage) }
+    do {
+        let catalog = try Catalog(library: try Library.open(at: path(args[1])))
+        if command == "clean-up" {
+            let r = try catalog.cleanUp()
+            print("moved \(r.moved) photos to \(r.folder)" + (r.errors.isEmpty ? "" : "; \(r.errors.count) errors: \(r.errors.prefix(3))"))
+        } else if command == "undo-clean-up" {
+            let r = try catalog.undo(.cleanup)
+            print("put \(r.restored) photos back" + (r.errors.isEmpty ? "" : "; \(r.errors.count) errors: \(r.errors.prefix(3))"))
+        }
+        let s = try catalog.saveSummary()
+        print("\(s.photos) photos, \(s.collections) collections, \(s.reviewedGroups) of \(s.groups) groups reviewed, you in \(s.you); "
+            + "to remove \(s.toRemove) (\(s.toRemoveBytes) bytes); removed \(s.removed) (\(s.removedBytes) bytes, \(s.waitingBytes) still in _to_remove)")
     } catch {
         fail(error.localizedDescription)
     }

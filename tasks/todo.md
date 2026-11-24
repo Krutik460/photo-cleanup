@@ -609,6 +609,27 @@ work is finished, not from `6e29afe`.
       group needs a second opinion while none of its photos has a pick, which is all resuming needs.
       Settings shows the CLI found, its version and sign-in, model and batches at a time.)
 - [ ] 8. Import of the existing library
+      (2026-11-24 17:20: `Core/Sources/PhotoCleanupCore/Import/LegacyImport.swift` and
+      `photocleanup-cli import-review`, 4 tests. Read-only run on the real folder
+      `/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026` into a scratch library, nothing written to
+      the drive or to the old output folder:
+      - scan: 1,161 images, all analyzed, 0 unreadable, 98.7 s. The old tool had analyzed 1,547.
+      - accounting of the 1,547: 1,161 found, 128 written off by the old tool, 0 in `_to_remove`,
+        258 not found. It sums. 251 of the found ones were not at the path the old log gives
+        (folders renamed or files moved by hand since) and were matched by file name and size.
+      - imported: 92 of 172 choice entries, 425 of 888 reviewed marks, 956 of 2,075 picks, 6 of 7
+        names, 6 folder switches, 4 merges, 6 moves, 19 not-a-trip marks; 805 photos recognised as
+        filed by the old tool. The old files list a filed photo under two ids, so entry counts
+        overstate photos; a separate script counted 103 distinct photos with a choice, of which 30
+        are among the missing and 2 written off. That script could not map 48 choice ids that the
+        importer does map, so the 92 is not independently confirmed.
+      - result: 17 collections, 188 groups, 714 to remove; you in 246 of 570 photos with a face.
+      OPEN, not resolved: 258 photos that carry review state are no longer under that folder and
+      the old log does not say they left. Where they are is unknown. `/Volumes/KRUTIK/Pictures/2026`
+      holds 4,545 images including same-name same-size copies of 1,164 old photos; whether the 258
+      are there was not established. Not done: the comparison with the old page (it now shows a
+      different set of photos), the face check on the matched 1,161 against `me.json`, the menu
+      item in the app, and importing into a real library.)
 - [ ] 9. `scripts/make-dmg.sh`: Release build (universal), sign, `hdiutil` DMG with an Applications
       link, into `dist/`; `setup.sh` shrinks to fetching the model for the build
       (2026-11-24: `scripts/make-dmg.sh` writes `dist/Photo-Cleanup-0.1.0.dmg`, 160 MB, arm64 and

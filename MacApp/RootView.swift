@@ -1,5 +1,6 @@
 import PhotoCleanupCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
@@ -7,10 +8,12 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if let session = model.session {
-                LibraryView(session: session)
+            if model.showLaunch {
+                LaunchView().transition(.opacity)
+            } else if let session = model.session {
+                LibraryView(session: session).transition(.opacity)
             } else {
-                WelcomeView()
+                HomeView().transition(.opacity.combined(with: .scale(scale: 0.985)))
             }
         }
         #if DEBUG
@@ -22,84 +25,15 @@ struct RootView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-    }
-}
-
-/// The start screen: your libraries, and a way to add a photo folder.
-struct WelcomeView: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Photo Cleanup").font(.largeTitle.weight(.semibold))
-                Text("Groups near-identical shots, keeps the best one, and lets you review every decision. Nothing is deleted; files only move when you ask.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if model.libraries.isEmpty {
-                ContentUnavailableView {
-                    Label("No photo folder yet", systemImage: "photo.on.rectangle.angled")
-                } description: {
-                    Text("Add a folder of photos to get started. It is analyzed on this Mac.")
-                } actions: {
-                    addButton
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(model.libraries) { info in
-                    Button { model.open(info) } label: { LibraryRow(info: info) }
-                        .buttonStyle(.plain)
-                }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
-                HStack {
-                    Spacer()
-                    addButton
-                }
-            }
+        .alert("Review imported", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.notice ?? "")
         }
-        .buttonBorderShape(.roundedRectangle)
-        .padding(32)
-        .frame(maxWidth: 760, maxHeight: .infinity)
-        .frame(maxWidth: .infinity)
-        .onAppear { model.refreshLibraries() }
-    }
-
-    private var addButton: some View {
-        Button("Add Photo Folder…") { model.showAddFolder = true }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
     }
 }
 
-struct LibraryRow: View {
-    let info: LibraryInfo
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: info.available ? "folder" : "externaldrive.badge.xmark")
-                .font(.title2)
-                .foregroundStyle(info.available ? Color.accentColor : .secondary)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(info.name).font(.headline)
-                Text(info.root).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-            Spacer()
-            Text(info.available ? "\(info.photos.formatted()) photos" : "Folder not connected")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
-    }
-}
-
-/// Pick a photo folder and, optionally, a photo of you.
+/// Pick a photo folder and, optionally, a photo of you. Both accept a drop.
 struct AddFolderSheet: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -107,54 +41,48 @@ struct AddFolderSheet: View {
     @State private var me: [URL] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Add a photo folder").font(.title2.weight(.semibold))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Photo folder").font(.headline)
-                HStack {
-                    Text(folder?.path ?? "No folder chosen")
-                        .foregroundStyle(folder == nil ? .secondary : .primary)
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    Button("Choose…") { folder = choose(folders: true).first ?? folder }
-                }
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Add a photo folder").font(.title2.weight(.bold))
                 Text("Photos are read where they are. Thumbnails and results are kept in the app's own folder.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(Theme.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("A photo of you (optional)").font(.headline)
-                HStack {
-                    Text(me.isEmpty ? "None" : me.map(\.lastPathComponent).joined(separator: ", "))
-                        .foregroundStyle(me.isEmpty ? .secondary : .primary)
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    if !me.isEmpty { Button("Clear") { me = [] } }
-                    Button("Choose…") { me = choose(folders: false) }
-                        .disabled(!model.recognisesFaces)
+            DropWell(icon: "folder", title: folder?.lastPathComponent ?? "Choose a photo folder",
+                     detail: folder?.deletingLastPathComponent().path ?? "or drop one here", filled: folder != nil) {
+                folder = choose(folders: true).first ?? folder
+            } onDrop: { urls in
+                folder = urls.first { (try? $0.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true } ?? folder
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                DropWell(icon: "person.crop.square", title: me.isEmpty ? "A photo of you (optional)" : me.map(\.lastPathComponent).joined(separator: ", "),
+                         detail: model.recognisesFaces ? (me.isEmpty ? "One to three clear, front-facing photos" : "Click to choose others")
+                             : "This build has no face model", filled: !me.isEmpty) {
+                    me = choose(folders: false)
+                } onDrop: { urls in
+                    me = Array(urls.filter { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }.prefix(3))
                 }
-                Text(model.recognisesFaces
-                     ? "One to three clear, front-facing photos. Photos with you are kept more generously; your face never leaves this Mac."
-                     : "This build has no face model, so photos of you cannot be recognised.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .disabled(!model.recognisesFaces)
+                Text("Photos with you are kept more generously. Your face is matched on this Mac and never leaves it.")
+                    .font(.caption).foregroundStyle(Theme.secondary)
             }
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(QuietButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Add and Scan") {
                     if let folder { model.addLibrary(photoFolder: folder, photosOfYou: me) }
                     dismiss()
                 }
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(folder == nil)
             }
         }
-        .padding(24)
+        .padding(26)
         .frame(width: 560)
-        .buttonBorderShape(.roundedRectangle)
+        .background(Theme.background)
     }
 
     private func choose(folders: Bool) -> [URL] {
@@ -168,6 +96,47 @@ struct AddFolderSheet: View {
     }
 }
 
+/// A large target to click or drop onto.
+struct DropWell: View {
+    let icon: String
+    let title: String
+    let detail: String
+    let filled: Bool
+    let action: () -> Void
+    let onDrop: ([URL]) -> Void
+    @State private var targeted = false
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: filled ? "checkmark.circle.fill" : icon)
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(filled ? Theme.good : Theme.accent)
+                    .frame(width: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                    Text(detail).font(.callout).foregroundStyle(Theme.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Text(filled ? "Change" : "Choose…").font(.callout.weight(.medium)).foregroundStyle(Theme.accent)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(targeted ? Theme.accent.opacity(0.1) : Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                .strokeBorder(targeted ? Theme.accent : Theme.line, style: StrokeStyle(lineWidth: 1.5, dash: filled ? [] : [7, 6])))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .opacity(enabled ? 1 : 0.5)
+        }
+        .buttonStyle(.plain)
+        .dropDestination(for: URL.self) { urls, _ in
+            onDrop(urls)
+            return true
+        } isTargeted: { targeted = $0 }
+    }
+}
+
 /// An open library: the review page, with the scan's progress on top while it runs.
 struct LibraryView: View {
     @EnvironmentObject var model: AppModel
@@ -175,6 +144,7 @@ struct LibraryView: View {
 
     var body: some View {
         ZStack {
+            Theme.background.ignoresSafeArea()
             PageView(router: session.router, version: model.pageVersion)
                 .opacity(showsPage ? 1 : 0)
             if !showsPage {
@@ -190,8 +160,8 @@ struct LibraryView: View {
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { model.closeLibrary() } label: { Label("Libraries", systemImage: "chevron.backward") }
-                    .help("Back to your libraries")
+                Button { withAnimation(Theme.spring) { model.closeLibrary() } } label: { Label("All Folders", systemImage: "chevron.backward") }
+                    .help("Back to the overview")
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 if let p = model.pipeline, showsPage {
@@ -200,6 +170,7 @@ struct LibraryView: View {
                         Text(p.total > 0 ? "\(p.title) \(p.done.formatted()) of \(p.total.formatted())" : p.title)
                             .font(.callout).foregroundStyle(.secondary).monospacedDigit()
                     }
+                    .fixedSize()
                 }
                 if showsPage { SecondOpinionButton() }
                 Button { model.scan() } label: { Label("Scan for New Photos", systemImage: "arrow.clockwise") }
@@ -219,25 +190,40 @@ struct LibraryView: View {
     }
 }
 
+/// The first scan of a folder: a ring that fills as photos are analyzed.
 struct ScanProgressCard: View {
     @EnvironmentObject var model: AppModel
     let state: PipelineState
 
     var body: some View {
-        VStack(spacing: 14) {
-            Text(state.title).font(.title3.weight(.semibold))
-            ProgressView(value: state.fraction)
-                .frame(width: 320)
-            Text(detail).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            Button("Cancel") { model.cancelScan() }
+        VStack(spacing: 20) {
+            ZStack {
+                Circle().stroke(Theme.line, lineWidth: 10)
+                Circle().trim(from: 0, to: state.fraction ?? 0.04)
+                    .stroke(LinearGradient(colors: [Theme.accent, Theme.good], startPoint: .top, endPoint: .bottom),
+                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(Theme.spring, value: state.fraction)
+                Text(state.fraction.map { "\(Int(($0 * 100).rounded()))%" } ?? "")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText())
+                if state.fraction == nil { ProgressView() }
+            }
+            .frame(width: 132, height: 132)
+            VStack(spacing: 5) {
+                Text(state.title).font(.title2.weight(.semibold))
+                Text(detail).font(.callout).foregroundStyle(Theme.secondary).monospacedDigit()
+            }
+            Button("Cancel") { model.cancelScan() }.buttonStyle(QuietButtonStyle())
         }
-        .buttonBorderShape(.roundedRectangle)
-        .padding(28)
+        .padding(36)
+        .frame(width: 420)
+        .card(padding: 0)
     }
 
     private var detail: String {
-        guard state.total > 0 else { return "This takes a moment on a large folder." }
+        guard state.total > 0 else { return "Everything is analyzed on this Mac." }
         let failed = state.failed > 0 ? " · \(state.failed) could not be read" : ""
-        return "\(state.done.formatted()) of \(state.total.formatted())\(failed)"
+        return "\(state.done.formatted()) of \(state.total.formatted()) photos\(failed)"
     }
 }

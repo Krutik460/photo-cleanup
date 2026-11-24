@@ -64,6 +64,7 @@ public final class Catalog {
             }
             let neighbors = pairs.map { (a: String($0["a"] as Int64), b: String($0["b"] as Int64), distance: $0["distance"] as Double) }
             grouping = groupPhotos(input, neighbors: neighbors, edits: stored.grouping, knowsYou: knowsYou, timeZone: timeZone)
+            try? saveSummary()
         }
     }
 

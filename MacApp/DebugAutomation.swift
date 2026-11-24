@@ -17,6 +17,24 @@ enum DebugAutomation {
     static let env = ProcessInfo.processInfo.environment
 
     static func start(_ model: AppModel, openSettings: @escaping () -> Void) {
+        // PHOTOCLEANUP_APPEARANCE: "light" or "dark", whatever the system is set to.
+        if let name = env["PHOTOCLEANUP_APPEARANCE"] {
+            NSApp.appearance = NSAppearance(named: name == "dark" ? .darkAqua : .aqua)
+        }
+        // PHOTOCLEANUP_LAUNCH: "skip" goes straight past the opening screen.
+        // PHOTOCLEANUP_FAKE_CLAUDE ("missing" or "signedout") replaces what the opening
+        // screen is told about the Claude CLI, in this debug process only, so those two cards can be
+        // pictured on a Mac that is signed in. It also disables the second opinion in that process.
+        if env["PHOTOCLEANUP_LAUNCH"] == "skip" { model.showLaunch = false }
+        if let fake = env["PHOTOCLEANUP_FAKE_CLAUDE"] {
+            Task {
+                while model.claude.checking { try? await Task.sleep(for: .milliseconds(100)) }
+                model.claude = fake == "missing"
+                    ? ClaudeState(detail: "Not found. Install Claude Code, or choose the command below.", checking: false)
+                    : ClaudeState(path: "/usr/local/bin/claude", version: "2.1.330 (Claude Code)", loggedIn: false,
+                                  detail: "Not signed in. Run `claude` in Terminal and sign in.", checking: false)
+            }
+        }
         if let name = env["PHOTOCLEANUP_OPEN"], let info = model.libraries.first(where: { $0.id == name || $0.name == name }) {
             model.open(info)
         }
