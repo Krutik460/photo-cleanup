@@ -41,15 +41,15 @@ final class Draft {
 
 /// The collection holding most of the listed photos now, or nil when none of them are left.
 /// Ties go to the collection met first in the list.
-func homeOf(_ listed: some Sequence<String>, _ owner: [String: Int]) -> Int? {
-    var counts: [Int: Int] = [:]
-    var order: [Int] = []
+func homeOf<C: Hashable>(_ listed: some Sequence<String>, _ owner: [String: C]) -> C? {
+    var counts: [C: Int] = [:]
+    var order: [C] = []
     for id in listed {
         guard let c = owner[id] else { continue }
         if counts[c] == nil { order.append(c) }
         counts[c, default: 0] += 1
     }
-    var best: Int?
+    var best: C?
     for c in order where best == nil || counts[c]! > counts[best!]! { best = c }
     return best
 }

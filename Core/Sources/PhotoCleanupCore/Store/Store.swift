@@ -90,6 +90,65 @@ public final class Store {
                 t.add(column: "me_face", .integer)
             }
         }
+        // Everything you decide in the page. Collections are rebuilt on every regroup and get new
+        // ids, so a name, a folder switch or an edit is stored with the photos of the collection it
+        // was made on (an anchor set) and applies to the collection holding most of them now.
+        m.registerMigration("v4 your state") { db in
+            let states = "('fav', 'keep', 'remove')"
+            try db.create(table: "decision") { t in
+                t.column("photo_id", .integer).primaryKey().references("photo", onDelete: .cascade)
+                t.column("state", .text).notNull().check(sql: "state IN \(states)")
+            }
+            try db.create(table: "reviewed") { t in
+                t.column("photo_id", .integer).primaryKey().references("photo", onDelete: .cascade)
+            }
+            try db.create(table: "ai_pick") { t in
+                t.column("photo_id", .integer).primaryKey().references("photo", onDelete: .cascade)
+                t.column("state", .text).notNull().check(sql: "state IN \(states)")
+                t.column("why", .text).notNull().defaults(to: "")
+                t.column("batch", .text)
+            }
+            try db.create(table: "anchor_set") { t in
+                t.autoIncrementedPrimaryKey("id")
+            }
+            try db.create(table: "anchor_set_photo") { t in
+                t.column("set_id", .integer).notNull().references("anchor_set", onDelete: .cascade)
+                t.column("position", .integer).notNull()
+                t.column("photo_id", .integer).notNull().references("photo", onDelete: .cascade)
+                t.primaryKey(["set_id", "position"])
+            }
+            // A trip or event you marked as not one. Its name and folder switch are held by the mark
+            // (held_by) so they do not show on the month it joins, and are released when it is restored.
+            try db.create(table: "edit_not_collection") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("set_id", .integer).notNull().references("anchor_set")
+            }
+            try db.create(table: "collection_name") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("set_id", .integer).notNull().references("anchor_set")
+                t.column("name", .text).notNull()
+                t.column("held_by", .integer).references("edit_not_collection", onDelete: .setNull)
+            }
+            try db.create(table: "folder_switch") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("set_id", .integer).notNull().references("anchor_set")
+                t.column("held_by", .integer).references("edit_not_collection", onDelete: .setNull)
+            }
+            try db.create(table: "edit_merge") { t in
+                t.autoIncrementedPrimaryKey("id")
+            }
+            try db.create(table: "edit_merge_part") { t in
+                t.column("merge_id", .integer).notNull().references("edit_merge", onDelete: .cascade)
+                t.column("position", .integer).notNull()
+                t.column("set_id", .integer).notNull().references("anchor_set")
+                t.primaryKey(["merge_id", "position"])
+            }
+            try db.create(table: "edit_move") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("photos_set", .integer).notNull().references("anchor_set")
+                t.column("into_set", .integer).notNull().references("anchor_set")
+            }
+        }
         return m
     }
 }
