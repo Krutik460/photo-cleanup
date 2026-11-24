@@ -585,10 +585,28 @@ work is finished, not from `6e29afe`.
       for, so it was most likely added by hand in that window. I stopped that process without
       knowing, at 86 photos analyzed. The folder was only read. The library is still in the
       scratchpad (`apptest/libs/3678941E-...`) and has not been touched since.)
-- [ ] 7. Review: native contact sheets, batches, ClaudeRunner, validation, toolbar UI
+- [x] 7. Review: native contact sheets, batches, ClaudeRunner, validation, toolbar UI
+      (2026-11-24: `Core/Sources/PhotoCleanupCore/Review`. Unit tests use a stand-in `claude`
+      script: answers into picks with the safety rules, batching, the message (no paths or file
+      names in it), failures explained, cancel stops the command, a failed batch changes nothing,
+      a second run has nothing left. Real runs on the 120-photo sample through the Claude login:
+      from the command line 15 groups in 53 s (13,227 input and 7,375 output tokens, reported cost
+      0.0063, 41 of 63 photos to remove); inside the app 15 groups in 42 s (reported 0.004, 34 of
+      63 to remove), page refreshed in place from 66 to 55 photos to move. The two runs differ on
+      7 photos with identical input: the model is not deterministic. No `review_batch` table: a
+      group needs a second opinion while none of its photos has a pick, which is all resuming needs.
+      Settings shows the CLI found, its version and sign-in, model and batches at a time.)
 - [ ] 8. Import of the existing library
 - [ ] 9. `scripts/make-dmg.sh`: Release build (universal), sign, `hdiutil` DMG with an Applications
       link, into `dist/`; `setup.sh` shrinks to fetching the model for the build
+      (2026-11-24: `scripts/make-dmg.sh` writes `dist/Photo-Cleanup-0.1.0.dmg`, 160 MB, arm64 and
+      x86_64, signed with the Apple Development identity; `scripts/make-icon.swift` draws the icon.
+      Checked: mounted, the app and an Applications link are in it, the copied-out app passes
+      `codesign --verify --strict`, has the icon, the model and the page, no debug automation, and
+      stays running when launched (stopped after 8 s). `spctl` rejects it, as expected for an app
+      that is not notarized. Not checked: the release app's window contents (only debug builds
+      can picture themselves; the UI code is the same), the Intel half, a second Mac. Not done:
+      `setup.sh` still builds the old tools, and the app was not copied to /Applications.)
 - [ ] 10. README rewrite; with your OK, remove the Python scripts and `run.sh` (history keeps them)
 - [ ] 11. Review section in `tasks/todo.md`; PR with `docs/pr/<num>-mac-app.md`
 
