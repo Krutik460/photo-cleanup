@@ -16,7 +16,7 @@ Code: this folder (see README.md).
 - [x] 6. Review page v1, verified in the browser (states, keyboard, lightbox, save, move/undo via API)
 - [x] 7. Fable redesign around trips and events, then verify end to end
 - [x] 7b. Keep-you policy: aligned face crops + local ArcFace (faces.py), you-first ranking, second distinct shot of you kept, aggressive pruning of photos without you, reasons on every automatic decision, YOU badges for Haiku, "Photos of you" view
-- [ ] 8. Run on the real folder (path still to come from the user), Haiku review, open the page
+- [x] 8. Run on the real folder (`/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026`, output in `../photo-cleanup-data/2026`), Haiku review, open the page
 - [ ] 9. Final move to `_to_remove` only when the user clicks it
 
 ## Safety
@@ -43,4 +43,9 @@ Verified on a generated 97-photo library with real EXIF dates and GPS (everyday 
 
 Face matching tested on 15 stock images from app bundles: the 7 images of the reference person scored 0.75-1.0, all others <= 0.14 (threshold 0.36). Found and fixed along the way: symlinked files were skipped, empty folders crashed the analyzer, and photos of you could be grouped with photos of other people.
 
-Not yet done: the real folder (waiting for the path and a photo of the user).
+Real folder (2026-11-24): `/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026` -> `../photo-cleanup-data/2026`, reference photo in `me/krutik.jpg` there.
+- 1,547 photos (videos are not analyzed) in 2 min 48 s from the external drive, 0 errors; 438 of them are Finder copies ("name 2.JPG"), giving 125 exact-duplicate groups.
+- Faces: you in 309 of 745 photos with faces; clean gap between matches and non-matches (12 faces between 0.2 and 0.36). Recall drops for sunglasses and motion blur with one reference photo.
+- 316 groups, 42 collections (4 trips, 11 day trips, 15 events, 12 everyday months). On-device: 1,162 to remove.
+- Haiku: 191 groups in 11 batches, ~1.14M tokens, 2.7 min, merged with 0 problems; it rescued 84 photos (1,078 to remove after merge). Every group with you keeps a photo of you.
+- Fixed along the way: a group card without a Haiku note rendered the text "null" (native append with null); app files were cached heuristically by the browser, so `server.py` now sends `Cache-Control: no-cache` for them.

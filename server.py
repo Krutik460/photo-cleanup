@@ -208,7 +208,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_file(preview)
         if path == "/":
             self.path = "/index.html"
+        self.app_file = True
         return super().do_GET()
+
+    def end_headers(self):
+        # App files carry only Last-Modified, so browsers would guess a cache lifetime and keep
+        # running an old app.js after an update. no-cache makes them revalidate (a cheap 304).
+        if getattr(self, "app_file", False):
+            self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
 
     def do_POST(self):
         path = urlparse(self.path).path

@@ -646,7 +646,8 @@ function groupCard(g) {
   card.dataset.group = g.id;
   paintGroup(card, g);
   const why = groupWhy(g);
-  card.append(groupHead(g), why ? el("div", "why", el("b", null, "Haiku"), why) : null);
+  card.append(groupHead(g));
+  if (why) card.append(el("div", "why", el("b", null, "Haiku"), why));
   const tiles = el("div", "tiles");
   for (const id of g.members) tiles.append(tile(id));
   card.append(tiles);
