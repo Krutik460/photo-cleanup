@@ -31,6 +31,8 @@ public struct PhotoRecord: Codable, FetchableRecord, MutablePersistableRecord, S
     public var error: String?
     public var location: PhotoLocation
     public var missing: Bool
+    public var meSim: Double?
+    public var meFace: Int?
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

@@ -179,7 +179,8 @@ public final class Analyzer {
             } else {
                 record = PhotoRecord(id: nil, relPath: file.rel, originalRelPath: file.rel, fingerprint: nil, size: 0, mtime: 0,
                                      taken: nil, width: 0, height: 0, aesthetic: nil, utility: nil, sharpness: 0, feature: nil,
-                                     lat: nil, lon: nil, analysisVersion: analysisVersion, error: nil, location: .inPlace, missing: false)
+                                     lat: nil, lon: nil, analysisVersion: analysisVersion, error: nil, location: .inPlace, missing: false,
+                                     meSim: nil, meFace: nil)
             }
             record.fingerprint = fp
             record.size = a.size

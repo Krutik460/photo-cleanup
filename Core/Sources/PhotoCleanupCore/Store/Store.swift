@@ -78,6 +78,18 @@ public final class Store {
             }
             try db.create(index: "neighbor_b", on: "neighbor", columns: ["b"])
         }
+        // Finding you: the face(s) of your reference photo, and per photo the best match with them.
+        m.registerMigration("v3 me") { db in
+            try db.create(table: "reference_face") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("source_path", .text).notNull()
+                t.column("embedding", .blob).notNull()
+            }
+            try db.alter(table: "photo") { t in
+                t.add(column: "me_sim", .double)
+                t.add(column: "me_face", .integer)
+            }
+        }
         return m
     }
 }
