@@ -5,6 +5,7 @@ import PhotoCleanupCore
 let usage = """
 usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.mlmodelc>] [--me <photo of you> ...]
        photocleanup-cli second-opinion <library-dir> [--limit <batches>] [--model haiku] [--claude <path>]
+       photocleanup-cli import-review <library-dir> <old output folder> [--replace]   review done with the old scripts
        photocleanup-cli serve <library-dir> <app-folder> [port]     the review page on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but
@@ -80,6 +81,24 @@ case "second-opinion":
         let p = try await SecondOpinionRun(cli: cli, model: model).run(catalog: catalog, limit: limit) { print($0.log) }
         print(String(format: "%d of %d batches done, %d failed; %d groups reviewed; %d input and %d output tokens, reported cost %.4f",
                      p.done - p.failed, p.total, p.failed, p.groups, p.usage.inputTokens, p.usage.outputTokens, p.usage.costUSD))
+    } catch {
+        fail(error.localizedDescription)
+    }
+case "import-review":
+    let replace = args.contains("--replace")
+    args.removeAll { $0 == "--replace" }
+    guard args.count == 3 else { fail(usage) }
+    do {
+        let library = try Library.open(at: path(args[1]))
+        let r = try importLegacyReview(from: path(args[2]), into: library, replace: replace)
+        print("old photos \(r.oldPhotos): found here \(r.matched), written off by the old tool \(r.gone), in _to_remove \(r.inRemoveFolder), not found \(r.notFound)")
+        print("filed by the old tool and recognised: \(r.filed)")
+        print("imported: \(r.decisions) choices, \(r.reviewed) reviewed marks, \(r.picks) second-opinion picks, \(r.names) names, "
+            + "\(r.folders) folder switches, \(r.merges) merges, \(r.moves) moves, \(r.notCollections) not-a-trip marks")
+        let c = try Catalog(library: library)
+        let states = try c.effectiveStates()
+        print("now: \(c.photoCount) photos, \(c.result.collections.count) collections, \(c.result.groups.count) groups, "
+            + "\(states.values.filter { $0 == .remove }.count) to remove")
     } catch {
         fail(error.localizedDescription)
     }
