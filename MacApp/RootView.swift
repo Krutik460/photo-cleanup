@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
@@ -12,6 +13,9 @@ struct RootView: View {
                 WelcomeView()
             }
         }
+        #if DEBUG
+        .task { DebugAutomation.start(model, openSettings: { openSettings() }) }
+        #endif
         .sheet(isPresented: $model.showAddFolder) { AddFolderSheet() }
         .alert("Something went wrong", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
@@ -197,6 +201,7 @@ struct LibraryView: View {
                             .font(.callout).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
+                if showsPage { SecondOpinionButton() }
                 Button { model.scan() } label: { Label("Scan for New Photos", systemImage: "arrow.clockwise") }
                     .help("Look for new, changed and moved photos in the folder")
                     .disabled(model.isBusy)

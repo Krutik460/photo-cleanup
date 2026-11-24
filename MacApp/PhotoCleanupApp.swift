@@ -9,9 +9,6 @@ struct PhotoCleanupApp: App {
             RootView()
                 .environmentObject(model)
                 .frame(minWidth: 1000, minHeight: 640)
-                #if DEBUG
-                .task { DebugAutomation.start(model) }
-                #endif
         }
         .defaultSize(width: 1440, height: 900)
         .commands {
@@ -27,6 +24,10 @@ struct PhotoCleanupApp: App {
                     .keyboardShortcut("w", modifiers: [.command, .shift])
                     .disabled(model.session == nil)
             }
+        }
+
+        Settings {
+            SettingsView().environmentObject(model)
         }
     }
 }

@@ -233,7 +233,7 @@ final class SecondOpinionTests: XCTestCase {
         let p = try await SecondOpinionRun(cli: cli).run(catalog: catalog) { log.add($0.log) }
         XCTAssertEqual([p.total, p.done, p.failed, p.groups], [1, 1, 0, 2])
         XCTAssertEqual(p.usage.outputTokens, 700)
-        XCTAssertTrue(log.lines[0].hasPrefix("2 groups in 1 batches"))
+        XCTAssertTrue(log.lines[0].hasPrefix("2 groups in 1 batch, up to 3 at a time"))
         XCTAssertTrue(log.lines[1].hasPrefix("batch 1: 2 groups"))
 
         let states = try catalog.effectiveStates()

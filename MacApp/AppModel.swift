@@ -37,9 +37,37 @@ struct PipelineState: Equatable {
     var fraction: Double? { total > 0 ? Double(done) / Double(total) : nil }
 }
 
+/// What is known about the Claude CLI on this Mac.
+struct ClaudeState: Equatable {
+    var path: String?
+    var version: String?
+    var loggedIn = false
+    var detail = "Looking for the Claude CLI…"
+    var checking = true
+
+    var ready: Bool { path != nil && loggedIn }
+}
+
+enum Preferences {
+    static let claudePath = "claudePath"
+    static let claudeModel = "claudeModel"
+    static let claudeParallel = "claudeParallel"
+
+    static var model: String { UserDefaults.standard.string(forKey: claudeModel) ?? "haiku" }
+    static var parallel: Int { max(1, min(6, UserDefaults.standard.object(forKey: claudeParallel) as? Int ?? 3)) }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var libraries: [LibraryInfo] = []
+    @Published var claude = ClaudeState()
+    /// Progress of the second opinion while it runs.
+    @Published var opinion: SecondOpinionRun.Progress?
+    @Published var opinionLog: [String] = []
+    /// Groups of similar shots Claude has not looked at yet.
+    @Published var pendingGroups = 0
+    @Published var showOpinionPanel = false
+    private var opinionTask: Task<Void, Never>?
     @Published var session: Session?
     @Published var pipeline: PipelineState?
     @Published var lastScan: ScanSummary?
@@ -67,7 +95,65 @@ final class AppModel: ObservableObject {
         embedder = Bundle.main.url(forResource: "ArcFace", withExtension: "mlmodelc").flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
         try? FileManager.default.createDirectory(at: librariesDir, withIntermediateDirectories: true)
         refreshLibraries()
+        refreshClaude()
     }
+
+    // MARK: - Second opinion
+
+    /// Looks for the Claude CLI and its sign-in state, off the main thread (it starts the command).
+    func refreshClaude() {
+        claude.checking = true
+        let preferred = UserDefaults.standard.string(forKey: Preferences.claudePath)
+        Task {
+            let state = await Task.detached { () -> ClaudeState in
+                guard let cli = ClaudeCLI.locate(preferred: preferred) else {
+                    return ClaudeState(detail: "Not found. Install Claude Code, or choose the command below.", checking: false)
+                }
+                let s = cli.status()
+                return ClaudeState(path: cli.url.path, version: s.version, loggedIn: s.loggedIn, detail: s.detail, checking: false)
+            }.value
+            claude = state
+        }
+    }
+
+    func refreshPending() {
+        pendingGroups = (try? session?.catalog.groupsNeedingSecondOpinion().count) ?? 0
+    }
+
+    func startSecondOpinion() {
+        guard let session, opinion == nil, let path = claude.path else { return }
+        opinion = SecondOpinionRun.Progress()
+        opinionLog = []
+        let run = SecondOpinionRun(cli: ClaudeCLI(url: URL(fileURLWithPath: path)), model: Preferences.model, parallel: Preferences.parallel)
+        opinionTask = Task {
+            do {
+                let p = try await run.run(catalog: session.catalog) { event in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.opinion != nil else { return }  // a late event after the run ended
+                        self.opinion = event.progress
+                        self.opinionLog.append(event.log)
+                    }
+                }
+                await Task.yield()
+                if p.total > 0 {
+                    opinionLog.append("Done: \(p.groups) groups looked at" + (p.failed > 0 ? ", \(p.failed) batches failed and can be run again" : "")
+                        + String(format: ". Reported cost %.3f.", p.usage.costUSD))
+                }
+            } catch is CancellationError {
+                opinionLog.append("Stopped. What was finished is kept; start again to continue.")
+            } catch {
+                opinionLog.append("Stopped: \(error.localizedDescription)")
+            }
+            opinion = nil
+            opinionTask = nil
+            refreshPending()
+            pageVersion += 1
+        }
+    }
+
+    func cancelSecondOpinion() { opinionTask?.cancel() }
+
+    // MARK: - Libraries
 
     func refreshLibraries() {
         let dirs = (try? FileManager.default.contentsOfDirectory(at: librariesDir, includingPropertiesForKeys: nil)) ?? []
@@ -82,6 +168,8 @@ final class AppModel: ObservableObject {
         do {
             session = try Session(info: info, library: try Library.open(at: info.dir), appDir: appDir)
             lastScan = nil
+            opinionLog = []
+            refreshPending()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -89,7 +177,9 @@ final class AppModel: ObservableObject {
 
     func closeLibrary() {
         scanTask?.cancel()
+        opinionTask?.cancel()
         session = nil
+        pendingGroups = 0
         refreshLibraries()
     }
 
@@ -139,6 +229,7 @@ final class AppModel: ObservableObject {
                 pipeline = PipelineState(title: "Grouping")
                 try await Task.detached { try session.catalog.regroup() }.value
                 lastScan = summary
+                refreshPending()
                 pageVersion += 1
             } catch {
                 errorMessage = error.localizedDescription

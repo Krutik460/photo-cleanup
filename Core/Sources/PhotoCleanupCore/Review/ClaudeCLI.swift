@@ -173,6 +173,11 @@ public struct SecondOpinionRun: Sendable {
         public var failed = 0
         public var groups = 0  // groups that got a pick
         public var usage = ClaudeCLI.Usage()
+
+        public init(done: Int = 0, total: Int = 0) {
+            self.done = done
+            self.total = total
+        }
     }
 
     public struct Event: Sendable {
@@ -199,7 +204,7 @@ public struct SecondOpinionRun: Sendable {
         var progress = Progress(total: batches.count)
         let run = ISO8601DateFormatter().string(from: Date())
         onEvent(Event(progress: progress, log: batches.isEmpty ? "Every group already has a second opinion."
-                          : "\(batches.reduce(0) { $0 + $1.count }) groups in \(batches.count) batches, \(parallel) at a time, model \(model)"))
+                          : "\(batches.reduce(0) { $0 + $1.count }) groups in \(batches.count) \(batches.count == 1 ? "batch" : "batches"), up to \(parallel) at a time, model \(model)"))
         let library = catalog.library, cli = self.cli, model = self.model
 
         try await withThrowingTaskGroup(of: (Int, Result<([ReviewAnswer], ClaudeCLI.Usage), Error>).self) { group in

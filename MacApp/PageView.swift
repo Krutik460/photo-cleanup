@@ -34,7 +34,11 @@ struct PageView: NSViewRepresentable {
             view.load(URLRequest(url: SchemeHandler.home))
         } else if c.version != version {
             c.version = version
-            view.reload()
+            // The page fetches its data again and redraws the route it is on. If it never finished
+            // loading, load it from the start instead.
+            view.evaluateJavaScript("load().then(() => true)") { _, error in
+                if error != nil { view.reload() }
+            }
         }
     }
 

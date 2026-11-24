@@ -16,7 +16,7 @@ import WebKit
 enum DebugAutomation {
     static let env = ProcessInfo.processInfo.environment
 
-    static func start(_ model: AppModel) {
+    static func start(_ model: AppModel, openSettings: @escaping () -> Void) {
         if let name = env["PHOTOCLEANUP_OPEN"], let info = model.libraries.first(where: { $0.id == name || $0.name == name }) {
             model.open(info)
         }
@@ -24,11 +24,33 @@ enum DebugAutomation {
             model.addLibrary(photoFolder: URL(fileURLWithPath: folder), photosOfYou: env["PHOTOCLEANUP_ME"].map { [URL(fileURLWithPath: $0)] } ?? [])
         }
         if env["PHOTOCLEANUP_SHOW"] == "add" { model.showAddFolder = true }
+        if env["PHOTOCLEANUP_SHOW"] == "settings" { openSettings() }
+        // PHOTOCLEANUP_OPINION: comma-separated "clear" (forget all picks), "start" (run it), "panel" (open the panel)
+        let opinion = Set((env["PHOTOCLEANUP_OPINION"] ?? "").split(separator: ",").map(String.init))
+        if opinion.contains("clear") {
+            try? model.session?.catalog.clearSecondOpinion()
+            model.refreshPending()
+        }
+        if opinion.contains("panel") { model.showOpinionPanel = true }
+        if opinion.contains("start") {
+            Task {
+                while model.claude.checking { try? await Task.sleep(for: .milliseconds(200)) }
+                model.startSecondOpinion()
+            }
+        }
         guard let target = env["PHOTOCLEANUP_SNAPSHOT"] else { return }
         let wait = Double(env["PHOTOCLEANUP_SNAPSHOT_AFTER"] ?? "") ?? 4
         Task {
+            // PHOTOCLEANUP_SNAPSHOT_EARLY: seconds after launch for an extra "<name>-early" picture,
+            // taken while work is still running; the app carries on.
+            if let early = Double(env["PHOTOCLEANUP_SNAPSHOT_EARLY"] ?? "") {
+                try? await Task.sleep(for: .seconds(early))
+                let url = URL(fileURLWithPath: target)
+                await snapshot(to: url.deletingLastPathComponent().appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-early.png"))
+            }
             if env["PHOTOCLEANUP_SNAPSHOT_DURING_SCAN"] == nil {
-                while model.isBusy { try? await Task.sleep(for: .milliseconds(200)) }
+                if opinion.contains("start") { try? await Task.sleep(for: .seconds(3)) }
+                while model.isBusy || model.opinion != nil || model.claude.checking { try? await Task.sleep(for: .milliseconds(200)) }
             }
             if let route = env["PHOTOCLEANUP_ROUTE"] {
                 try? await Task.sleep(for: .seconds(1.5))
@@ -75,8 +97,12 @@ enum DebugAutomation {
         } else {
             try? rep.representation(using: .png, properties: [:])?.write(to: url)
         }
-        if let sheet = window.attachedSheet, let view = sheet.contentView?.superview ?? sheet.contentView, let rep = picture(view) {
-            let name = url.deletingPathExtension().lastPathComponent + "-sheet.png"
+        // Sheets, popovers and the Settings window are windows of their own.
+        var n = 0
+        for other in NSApp.windows where other !== window && other.isVisible {
+            guard let view = other.contentView?.superview ?? other.contentView, view.bounds.width > 40, let rep = picture(view) else { continue }
+            n += 1
+            let name = url.deletingPathExtension().lastPathComponent + "-extra\(n).png"
             try? rep.representation(using: .png, properties: [:])?.write(to: url.deletingLastPathComponent().appendingPathComponent(name))
         }
     }
