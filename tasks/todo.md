@@ -767,3 +767,11 @@ gallery-wall, command-deck), sharing `dist/design/data.js` and `dist/design/BRIE
   Stop those two and nothing else: 8765 and 8766 are the old page servers and are not mine.
 - Next time the brief must say how to view the file and that any server is bound to loopback,
   serves only `dist/design`, and is stopped by whoever started it.
+
+Update 18:35: all four directions reported and are in `dist/design-directions.html` (7.3 MB, one
+self-contained file). Looked at by me inside the comparison page: Glass workspace (home dark, folder
+light, review dark), Focus review (review dark, folder light, home dark), Gallery wall (home light,
+folder light, review dark), Command deck (folder dark, home light and dark). Not looked at by me:
+Command deck's review screen and the other half of the light/dark pairs. No console errors.
+The agents' servers are all stopped. Still listening and mine: 127.0.0.1:8940 serving only
+`dist/compare/index.html`, left up while the user picks; stop it afterwards.
