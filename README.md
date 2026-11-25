@@ -10,6 +10,18 @@ Nothing is ever deleted. Files only move in the two steps of the Finish page, ea
 
 ## Install
 
+Download `Photo-Cleanup-<version>.dmg` from the
+[latest release](https://github.com/Krutik460/photo-cleanup/releases/latest), open it and drag Photo
+Cleanup to Applications. Needs macOS 15 or later, Apple silicon or Intel.
+
+The app is not notarized by Apple, so the first launch is stopped with "Apple could not verify". Open
+System Settings > Privacy & Security, scroll to the message about Photo Cleanup and click Open
+Anyway. That is needed once.
+
+The download comes without the face recognition model, because that model's license (InsightFace,
+non-commercial research use) does not allow passing it on freely. Everything works without it except
+picking out the photos you are in. To have that too, build the app yourself:
+
 ```bash
 ./setup.sh
 ```
@@ -20,11 +32,13 @@ scripts/make-dmg.sh
 
 `setup.sh` downloads the face model to `models/` (it also sets up the earlier scripts, see the end);
 `make-dmg.sh` converts the model to Core ML on its first run and builds
-`dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel). Open the DMG and drag Photo Cleanup to Applications. The app is signed
-with the Apple Development identity on the Mac that built it and is not notarized: on another Mac the
-first launch needs System Settings > Privacy & Security > Open Anyway.
+`dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel), signed with the Apple Development
+identity on your Mac when there is one. `scripts/make-dmg.sh --public` builds the download as it is
+released: without the model and signed ad hoc. Building needs Xcode, `xcodegen` and `uv`.
 
-Needs macOS 15 or later. Building needs Xcode, `xcodegen` and `uv`.
+The second opinion is optional and uses your own installed
+[Claude Code](https://claude.com/claude-code) command and sign-in. The app shows how to set it up and
+works without it.
 
 ## Using the app
 
