@@ -1,70 +1,155 @@
-# Photo Cleanup
+<div align="center">
 
-A Mac app that finds near-identical shots in a photo folder, picks the best one of each group, marks
-the rest for removal, and lets you review every decision. Photos are organized into trips, events and
-everyday months, and you clean up inside each one.
+  <img src="docs/assets/icon.png" width="128" alt="Photo Cleanup app icon" />
 
-Nothing is ever deleted. Files only move in the two steps of the Finish page, each with its own undo:
-**Organize files** puts the photos of trips and events you switched on into a folder of their own, and
-**Clean up** puts photos you marked "remove" into a `_to_remove` folder inside your photo folder.
+  <h1>Photo Cleanup</h1>
+
+  <p><b>Keep the best shot. Let the rest go.</b></p>
+
+  <p>
+    A free, open-source Mac app that finds the near-identical shots in a photo folder,<br/>
+    picks the best one of each group, and lets you review every decision.<br/>
+    Nothing is deleted, and every step has an undo.
+  </p>
+
+  <p>
+    <a href="https://github.com/Krutik460/photo-cleanup/releases/latest"><img src="https://img.shields.io/github/v/release/Krutik460/photo-cleanup?label=latest&color=0a6cff" alt="Latest release" /></a>
+    <a href="https://github.com/Krutik460/photo-cleanup/releases"><img src="https://img.shields.io/github/downloads/Krutik460/photo-cleanup/total?label=downloads&color=1c9d50" alt="Total downloads" /></a>
+    <a href="#install"><img src="https://img.shields.io/badge/macOS-15%2B%20Apple%20silicon%20and%20Intel-black" alt="macOS 15 and newer, Apple silicon and Intel" /></a>
+    <a href="https://github.com/Krutik460/photo-cleanup/stargazers"><img src="https://img.shields.io/github/stars/Krutik460/photo-cleanup?color=f5b301" alt="GitHub stars" /></a>
+  </p>
+
+  <p>
+    <a href="https://github.com/Krutik460/photo-cleanup/releases/latest"><b>Download</b></a>
+    &nbsp;·&nbsp;
+    <a href="#install">Install</a>
+    &nbsp;·&nbsp;
+    <a href="#what-it-does">Features</a>
+    &nbsp;·&nbsp;
+    <a href="#private-by-default">Privacy</a>
+    &nbsp;·&nbsp;
+    <a href="#development">Build from source</a>
+  </p>
+
+  <img src="docs/assets/review.jpg" width="820" alt="Reviewing a group of near-identical shots: the best one large, the rest marked remove" />
+
+</div>
+
+---
+
+You took the same photo nine times. Photo Cleanup groups the look-alikes, suggests the one to keep and
+says why, and you go through them with four keys. When you are done, the photos you removed move into
+a `_to_remove` folder inside your photo folder. You delete that folder yourself, when you are sure.
+
+> [!NOTE]
+> Nothing is ever deleted. Files only move in the two steps of Finish, each asked first and each with
+> its own undo: **Organize files** puts a collection's photos into a folder of their own, and
+> **Clean up** puts the photos you marked remove into `_to_remove`.
+
+<!-- demo -->
+
+## What it does
+
+### Home
+
+The space your clean-ups have saved, what is waiting, and every photo folder as a card. Click one to
+open it, or drop a folder on the window to add it. Removing a folder from the app sends only the
+app's data about it to the Trash; the photos stay.
+
+<p align="center">
+  <img src="docs/assets/home.jpg" width="720" alt="Home: space saved so far, what is waiting to be cleaned up, and the photo folders" />
+</p>
+
+### Organize
+
+Your photos sorted into trips, day trips, events and everyday months, each as a cover. A folder
+directly inside your photo folder is a collection as it is, named after the folder.
+
+- Select several collections to merge them, or let the app suggest it when two trips touch.
+- Rename a collection in place, mark a trip that is not one, or give a collection a folder of its own.
+- Search, and filter by kind.
+
+<p align="center">
+  <img src="docs/assets/organize.jpg" width="720" alt="Organize: collections as covers with how many groups are left to review" />
+</p>
+
+### Review
+
+Each group of similar shots with its best one large, and the reason for the pick.
+
+| Key | What it does |
+| --- | --- |
+| `F` | Favorite. The shot takes the large place in its group |
+| `K` | Keep |
+| `X` | Remove |
+| `U` | Back to the suggestion |
+| `D` | Mark the group reviewed and go to the next one |
+| `S` | Select photos, to move them to another collection |
+| `Return` | Open the photo large |
+| `?` | All keys |
+
+A photo marked remove keeps its real look and gets a red frame, so you judge what you see. Reviewed
+groups fold away.
+
+<p align="center">
+  <img src="docs/assets/viewer.jpg" width="720" alt="The large viewer with the photo, its facts and the same keys" />
+</p>
+
+### Finish
+
+Two steps that move files. **Organize files** moves each switched-on collection into a folder named
+after it. **Clean up** moves the photos marked remove into `_to_remove`; exact duplicate copies can
+go first. Each step asks in place and has its own undo.
+
+<p align="center">
+  <img src="docs/assets/finish.jpg" width="720" alt="Finish: organize files and clean up, each with its own undo" />
+</p>
+
+### Photos of you
+
+Give the app one to three clear photos of you (when adding a folder, or later under Library > Photos
+of you). It then knows which shots you are in, never suggests removing one of them on its own, and
+keeps the best of them. The comparison runs on your Mac.
+
+### Second opinion
+
+Optional. The sparkles button asks Claude which shots of each group to keep, and why. It runs your own
+installed [Claude Code](https://claude.com/claude-code) command with your sign-in; no API key is stored
+in the app. When the command is missing or signed out, the app shows the two Terminal lines to set it
+up. Your own choices always win over its picks.
+
+### Light and dark
+
+The app follows the system appearance.
+
+<p align="center">
+  <img src="docs/assets/review-light.jpg" width="720" alt="The review in the light appearance" />
+</p>
 
 ## Install
 
-Download `Photo-Cleanup-<version>.dmg` from the
-[latest release](https://github.com/Krutik460/photo-cleanup/releases/latest), open it and drag Photo
-Cleanup to Applications. Needs macOS 15 or later, Apple silicon or Intel.
+1. Download `Photo-Cleanup-<version>.dmg` from the
+   [latest release](https://github.com/Krutik460/photo-cleanup/releases/latest), open it and drag Photo Cleanup to
+   Applications.
+2. The app is not notarized by Apple, so the first launch is stopped with "Apple could not verify".
+   Open System Settings > Privacy & Security, scroll to the message about Photo Cleanup and click
+   **Open Anyway**. That is needed once.
 
-The app is not notarized by Apple, so the first launch is stopped with "Apple could not verify". Open
-System Settings > Privacy & Security, scroll to the message about Photo Cleanup and click Open
-Anyway. That is needed once.
+Needs macOS 15 or later, Apple silicon or Intel.
 
-To build it yourself:
+<p align="center">
+  <img src="docs/assets/opening.jpg" width="620" alt="The opening check: photo folders, face recognition and Claude" />
+</p>
 
-```bash
-scripts/make-dmg.sh
-```
+## Private by default
 
-On its first run this fetches the face model (SFace from OpenCV's model zoo, 37 MB) and converts it to
-Core ML, then builds `dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel), signed with the
-Apple Development identity on your Mac when there is one. `scripts/make-dmg.sh --public` builds the
-download as it is released: signed ad hoc. Building needs Xcode, `xcodegen` and `uv`.
-
-The second opinion is optional and uses your own installed
-[Claude Code](https://claude.com/claude-code) command and sign-in. The app shows how to set it up and
-works without it.
-
-## Using the app
-
-- **Opening check.** The app checks what it needs: analysis on this Mac, face recognition, and the
-  Claude CLI for second opinions. When Claude is not installed or not signed in it shows the Terminal
-  commands (`claude auth login`), which you run yourself. Everything except the second opinion works
-  without it.
-- **Home.** The space your clean-ups have saved, what is waiting to be cleaned up, and every photo
-  folder as a card. Click one to open it, or drop a folder on the window to add it. Removing a folder
-  (the button on its card) sends only the app's data about it to the Trash; the photos stay.
-- **Adding a folder.** Pick the folder and, optionally, one to three clear photos of you. The first
-  scan analyzes every photo on this Mac; later scans (the Scan button, or File > Scan for New Photos)
-  only look at what is new, changed or moved.
-- **Collections.** Photos are sorted into trips, day trips, events and everyday months. A folder
-  directly inside your photo folder is a collection as it is, named after the folder; its photos stay
-  out of the detection and stay where they are.
-- **Organize.** Every collection as a cover. Select several to merge them, rename one in place, mark a
-  trip that is not one, or give a collection a folder of its own.
-- **Review.** Each group of similar shots with its best one large, and why. `F` favorite, `K` keep,
-  `X` remove, `U` back to the suggestion, `D` reviewed and on to the next group, `S` select (to move
-  photos to another collection), Return for the large viewer, `?` for all keys. A photo marked remove
-  keeps its real look and gets a red frame.
-- **Finish.** Two steps that move files, each asked first and each with its own undo: organize the
-  files into collection folders, and clean up (the photos marked remove go to `_to_remove`). Nothing
-  is deleted.
-- **Second opinion.** The sparkles button asks Claude which shots of each group to keep. It runs your
-  installed `claude` command with your Claude sign-in; no API key is stored. Small contact sheets of
-  the photos are sent to Anthropic; file names, locations and face data stay on the Mac. Your own
-  choices always win over its picks.
-- **Photos of you.** Give the app one to three clear photos of you (when adding a folder, or later
-  under Library > Photos of you). It then knows which shots you are in and keeps the best of them.
-  The comparison runs on your Mac.
-- **Light and dark.** The app follows the system appearance.
+- Similar shots, sharpness, faces, trips and events are all worked out on your Mac. No account, no
+  telemetry, and the app never listens on a network port.
+- The app's data about a folder lives in `~/Library/Application Support/Photo Cleanup/`. Your photos
+  are only read, until you ask for one of the two steps in Finish.
+- The only thing that can leave the Mac is the optional second opinion: small contact sheets of the
+  groups go to Anthropic through your own Claude Code command. File names, locations and face data
+  stay on the Mac.
 
 ## How it works
 
@@ -94,6 +179,17 @@ the app or in Finder, keeps everything decided about it. Every file the app move
 `file_move` table before it moves, so a crash mid-step cannot lose track of a file.
 
 ## Development
+
+To build the DMG yourself:
+
+```bash
+scripts/make-dmg.sh
+```
+
+On its first run this fetches the face model (SFace from OpenCV's model zoo, 37 MB) and converts it to
+Core ML, then builds `dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel), signed with the
+Apple Development identity on your Mac when there is one. `scripts/make-dmg.sh --public` builds the
+download as it is released: signed ad hoc. Building needs Xcode, `xcodegen` and `uv`.
 
 ```
 Core/            Swift package PhotoCleanupCore with all logic, and photocleanup-cli
