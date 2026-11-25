@@ -206,7 +206,7 @@ function renderSidebar() {
         const cover = coverPhotos(c, 1)[0];
         return '<button class="row' + (r.name === 'c' && r.id === c.id ? ' on' : '') + '" data-go="c/' + esc(c.id) + '" data-row="' + esc(c.id) + '"><span class="th">' + (cover ? img(thumbSrc(cover)) : '') + '</span><span class="tx"><b>' + esc(colTitle(c)) + '</b><small>' + esc(colMeta(c, true)) + '</small></span>' + rowCount(c) + '</button>';
       }).join('')).join('') +
-      (list.length ? '' : '<div class="empty" style="padding:28px 0;font-size:12.5px">No collection matches</div>') +
+      (list.length || !U.q.trim() ? '' : '<div class="empty" style="padding:28px 0;font-size:12.5px">No collection matches</div>') +
       '<h6>Library</h6>' +
       LIBRARY.map((v) => '<button class="row' + (r.name === 'view' && r.id === v.id ? ' on' : '') + '" data-go="view/' + v.id + '" data-view="' + v.id + '" title="' + esc(v.hint) + '"><span class="th ico">' + ic(v.icon, 17) + '</span><span class="tx"><b>' + esc(v.label) + '</b></span><span class="n">' + num(libraryCount(v)) + '</span></button>').join('') +
     '</nav>' +

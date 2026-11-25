@@ -62,7 +62,6 @@ function renderLibrary() {
 // Rename in place. Return keeps the name, Escape leaves it as it was, an empty name goes back to the date.
 function editTitle(h, c, done) {
   if (!h || !c) { done(); return; }
-  let cancelled = false;
   h.textContent = c.name || '';
   h.dataset.ph = c.source || defaultTitle(c);
   h.focus({ preventScroll: true });
@@ -71,16 +70,10 @@ function editTitle(h, c, done) {
   const sel = getSelection();
   sel.removeAllRanges();
   sel.addRange(r);
-  h.addEventListener('keydown', (e) => {
-    e.stopPropagation();
-    if (e.key === 'Escape') cancelled = true;
-    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); h.blur(); }
-  });
-  h.addEventListener('paste', (e) => {
-    e.preventDefault();
-    document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s+/g, ' '));
-  });
-  h.addEventListener('blur', async () => {
+  let over = false;
+  const finish = async (cancelled) => {
+    if (over) return;
+    over = true;
     const name = h.textContent.replace(/\s+/g, ' ').trim().slice(0, 80);
     done();
     if (cancelled || name === (c.name || '') || (!name && c.name === c.source)) { rerender(); return; }
@@ -89,7 +82,16 @@ function editTitle(h, c, done) {
       await call('/api/name', { id: c.members[0], name: name });
       await reload(c.members[0]);
     } catch (e) { oops(e); rerender(); }
-  }, { once: true });
+  };
+  h.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); finish(e.key === 'Escape'); }
+  });
+  h.addEventListener('paste', (e) => {
+    e.preventDefault();
+    document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s+/g, ' '));
+  });
+  h.addEventListener('blur', () => finish(false), { once: true });
 }
 
 /* ---------- selection and the bar that acts on it ---------- */

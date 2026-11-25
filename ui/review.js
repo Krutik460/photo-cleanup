@@ -311,6 +311,13 @@ function applyState(state) {
   // A group has one favorite: starring another shot turns the earlier favorite into a keep.
   const g = state === 'fav' && ids.length === 1 ? S.groupById[S.photos[ids[0]].group] : null;
   if (g) g.members.forEach((m) => { if (m !== ids[0] && live(m) && eff(m) === 'fav') changes[m] = 'keep'; });
+  // Taking a star back gives it to the shot that had it by suggestion.
+  if (state === null) {
+    ids.forEach((id) => {
+      const og = S.decisions[id] === 'fav' && S.groupById[S.photos[id].group];
+      if (og) og.members.forEach((m) => { if (!(m in changes) && S.decisions[m] === 'keep' && suggestion(m) === 'fav') changes[m] = null; });
+    });
+  }
   setStates(changes);
   afterStates(Object.keys(changes), state === 'fav' && ids.length === 1 ? ids[0] : null);
 }

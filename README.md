@@ -32,14 +32,24 @@ Needs macOS 15 or later. Building needs Xcode, `xcodegen` and `uv`.
   Claude CLI for second opinions. When Claude is not installed or not signed in it shows the Terminal
   commands (`claude auth login`), which you run yourself. Everything except the second opinion works
   without it.
-- **Overview.** The space your clean-ups have saved, what is waiting to be cleaned up, and every photo
-  folder as a card. Click one to open it, or drop a folder anywhere to add it. Removing a folder from
-  the overview sends only the app's data about it to the Trash; the photos stay.
+- **Home.** The space your clean-ups have saved, what is waiting to be cleaned up, and every photo
+  folder as a card. Click one to open it, or drop a folder on the window to add it. Removing a folder
+  (the button on its card) sends only the app's data about it to the Trash; the photos stay.
 - **Adding a folder.** Pick the folder and, optionally, one to three clear photos of you. The first
-  scan analyzes every photo on this Mac; later scans (File > Scan for New Photos) only look at what is
-  new, changed or moved.
-- **Organize, Review, Finish.** The review itself: merge trips and events, go through each group of
-  similar shots (`F` favorite, `K` keep, `X` remove, `D` reviewed), then organize files and clean up.
+  scan analyzes every photo on this Mac; later scans (the Scan button, or File > Scan for New Photos)
+  only look at what is new, changed or moved.
+- **Collections.** Photos are sorted into trips, day trips, events and everyday months. A folder
+  directly inside your photo folder is a collection as it is, named after the folder; its photos stay
+  out of the detection and stay where they are.
+- **Organize.** Every collection as a cover. Select several to merge them, rename one in place, mark a
+  trip that is not one, or give a collection a folder of its own.
+- **Review.** Each group of similar shots with its best one large, and why. `F` favorite, `K` keep,
+  `X` remove, `U` back to the suggestion, `D` reviewed and on to the next group, `S` select (to move
+  photos to another collection), Return for the large viewer, `?` for all keys. A photo marked remove
+  keeps its real look and gets a red frame.
+- **Finish.** Two steps that move files, each asked first and each with its own undo: organize the
+  files into collection folders, and clean up (the photos marked remove go to `_to_remove`). Nothing
+  is deleted.
 - **Second opinion.** The sparkles button asks Claude which shots of each group to keep. It runs your
   installed `claude` command with your Claude sign-in; no API key is stored. Small contact sheets of
   the photos are sent to Anthropic; file names, locations and face data stay on the Mac. Your own
@@ -77,8 +87,9 @@ the app or in Finder, keeps everything decided about it. Every file the app move
 
 ```
 Core/            Swift package PhotoCleanupCore with all logic, and photocleanup-cli
-MacApp/          the SwiftUI app: opening check, overview, library window, settings
-app/             the review page (HTML, CSS, JS), shown in a web view through photocleanup://
+MacApp/          the Mac app: one window with a web view, menus, pickers, drag and drop, Settings
+ui/              the whole interface (HTML, CSS, JS, no build step), served through photocleanup://
+app/             the review page of the earlier scripts (server.py); the app does not use it
 scripts/         make-dmg.sh, make-icon.swift, convert_face_model.py, app-shot.sh
 project.yml      XcodeGen project (the .xcodeproj is generated, not committed)
 ```
@@ -91,10 +102,24 @@ swift test --package-path Core
 xcodegen generate && xcodebuild -project PhotoCleanup.xcodeproj -scheme PhotoCleanup -derivedDataPath build/DerivedData build
 ```
 
+The interface is one page. What it shows above a single folder (the folders, scanning, Claude, the
+second opinion) comes from `Workspace` in the core and is answered by `AppRouter` under `/app/*`;
+everything about the open folder is answered by its `Router` under `/api/*`. The Mac app feeds both
+from a custom URL scheme and adds what only a Mac app can do (pickers, Finder, Settings, moving the
+window from the page's own toolbar).
+
 `Core/.build/debug/photocleanup-cli` drives the core without the app: `analyze`, `second-opinion`,
-`import-review`, `summary`, `clean-up`, `undo-clean-up`, and `serve`, which puts the review page on
-localhost for work in a browser. `scripts/app-shot.sh` launches the debug build and saves a picture of
-its own window, for checking the UI without recording the screen.
+`import-review`, `summary`, `clean-up`, `undo-clean-up`, and `serve`:
+
+```bash
+Core/.build/debug/photocleanup-cli serve <libraries-dir> ui 8770 --model models/ArcFace.mlmodelc
+```
+
+puts the whole interface on localhost for work in a browser (no pickers there: a folder is added with
+`appAction('add', {path: '...'})` in the console). `scripts/app-shot.sh` launches the debug build and
+saves a picture of its own window, for checking the UI without recording the screen; the variables it
+takes are listed in `MacApp/DebugAutomation.swift`, and `PHOTOCLEANUP_UI=ui` reads the interface from
+the source folder, so a change needs no rebuild. Those pictures do not show the blur behind glass.
 
 `PHOTOCLEANUP_PARITY_DIR=<folder> swift test --package-path Core --filter GroupingParityTests`
 compares the Swift grouping with `group.py` on a folder holding that script's input and output.

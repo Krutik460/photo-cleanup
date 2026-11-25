@@ -110,10 +110,10 @@ function runStep(step) {
       return done.length ? done.join(', ') + '.' : 'The folders already matched your collections.';
     });
   } else if (step === 'dups') {
-    runMove('/api/cleanup', (r) => (r.moved ? 'Moved ' + pl(r.moved, 'duplicate copy', 'duplicate copies') + ' to ' + r.folder + '.' : 'No duplicate copies to move.') +
+    runMove('/api/cleanup', (r) => (r.moved ? 'Moved ' + pl(r.moved, 'duplicate copy', 'duplicate copies') + ' to _to_remove.' : 'No duplicate copies to move.') +
       (r.reviewed ? ' ' + pl(r.reviewed, 'group') + ' of duplicates marked reviewed.' : ''), { only: 'duplicates' });
   } else {
-    runMove('/api/cleanup', (r) => (r.moved ? 'Moved ' + pl(r.moved, 'photo') + ' to ' + r.folder + '.' : 'Nothing needed moving.'));
+    runMove('/api/cleanup', (r) => (r.moved ? 'Moved ' + pl(r.moved, 'photo') + ' to _to_remove.' : 'Nothing needed moving.'));
   }
 }
 function runUndo(step) {

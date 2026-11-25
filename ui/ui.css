@@ -415,7 +415,8 @@ button.sb-foot:hover{background:var(--fill-2)}
 
 /* first scan of a folder: nothing to show yet, so the progress has the floor */
 .scanning{position:absolute;inset:0 0 0 var(--main-l);z-index:26;display:grid;place-items:center;pointer-events:none}
-.scancard{pointer-events:auto;width:340px;border-radius:28px;padding:30px 26px 22px;text-align:center;display:flex;flex-direction:column;align-items:center;animation:rise .5s both}
+.scancard{pointer-events:auto;width:340px;border-radius:28px;padding:30px 26px 22px;text-align:center;display:flex;flex-direction:column;align-items:center}
+.scanning{animation:rise .5s both}
 .scancard .ring{margin-bottom:16px}
 .scancard .ring circle{stroke-width:3}
 .scancard h3{font-size:19px;font-weight:700;letter-spacing:-.015em}
