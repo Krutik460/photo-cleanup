@@ -123,6 +123,31 @@ final class FileStepsTests: XCTestCase {
         XCTAssertEqual(try catalog.organize(), OrganizeResult(), "a second run has nothing to do")
     }
 
+    func testAFolderOfYoursIsACollectionAndStaysWhereItIs() throws {
+        let page = try JSONSerialization.jsonObject(with: catalog.pageData()) as! [String: Any]
+        let collections = page["collections"] as! [[String: Any]]
+        XCTAssertEqual(collections.map { $0["name"] as! String }, ["Camera", "Trip"])
+        XCTAssertEqual(collections.map { $0["source"] as? String }, ["Camera", "Trip"])
+        XCTAssertEqual(collections.map { $0["kind"] as! String }, ["everyday", "trip"])
+        XCTAssertEqual(collections.map { ($0["members"] as! [String]).count }, [24, 6])
+        XCTAssertEqual(collections.map { $0["folderOn"] as! Bool }, [false, false])
+
+        // Switched on under its own name, the folder is where its photos already are.
+        let before = files()
+        try catalog.setFolder(collectionOf: ids["Trip/IMG_10.jpg"], on: true)
+        XCTAssertEqual(try catalog.organize(), OrganizeResult())
+        XCTAssertEqual(files(), before)
+
+        // Renamed, the photos follow; with the name taken back, they return to the folder they came from.
+        try catalog.rename(collectionOf: ids["Trip/IMG_10.jpg"], to: "Seattle")
+        XCTAssertEqual(try catalog.organize().filed, 6)
+        try catalog.rename(collectionOf: ids["Trip/IMG_10.jpg"], to: "")
+        XCTAssertEqual(try catalog.organize(), OrganizeResult(filed: 0, back: 6, folders: 0, errors: []))
+        XCTAssertEqual(files(), before)
+        XCTAssertEqual(folders(), ["Camera", "Trip"])
+        XCTAssertEqual(try row("Trip/IMG_10.jpg").location, .inPlace)
+    }
+
     func testOrganizeAgainFollowsARenameAMoveAndASwitchedOffFolder() throws {
         try nameTripAndSwitchFolderOn()
         _ = try catalog.organize()

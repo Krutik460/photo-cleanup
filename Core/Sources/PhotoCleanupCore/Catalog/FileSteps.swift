@@ -251,10 +251,18 @@ extension Catalog {
                     let dir = (p.relPath as NSString).deletingLastPathComponent
                     do {
                         if let folder {
-                            if sameFolder(dir, folder) { continue }  // already in its folder
-                            try file(p, into: folder)
-                            result.filed += 1
-                            used.insert(folder)
+                            // Already in its folder, or in a folder of yours inside it.
+                            if sameFolder(dir, folder) || dir.hasPrefix(folder + "/") { continue }
+                            let home = (p.originalRelPath as NSString).deletingLastPathComponent
+                            if p.location == .filed, home == folder || home.hasPrefix(folder + "/") {
+                                // Where it came from is inside that folder: going back is all it takes.
+                                try putBack(p)
+                                result.back += 1
+                            } else {
+                                try file(p, into: folder)
+                                result.filed += 1
+                                used.insert(folder)
+                            }
                         } else if p.location == .filed {
                             try putBack(p)
                             result.back += 1

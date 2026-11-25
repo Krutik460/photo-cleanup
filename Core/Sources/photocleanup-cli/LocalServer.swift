@@ -2,13 +2,13 @@ import Foundation
 import Network
 import PhotoCleanupCore
 
-/// Serves a Router on 127.0.0.1 so the review page can be opened in a browser while developing.
-/// The app itself never listens on a port: it feeds the same Router from a custom URL scheme.
+/// Serves the interface on 127.0.0.1 so it can be opened in a browser while developing.
+/// The app itself never listens on a port: it feeds the same AppRouter from a custom URL scheme.
 final class LocalServer {
-    let router: Router
+    let router: AppRouter
     let listener: NWListener
 
-    init(router: Router, port: UInt16) throws {
+    init(router: AppRouter, port: UInt16) throws {
         self.router = router
         let params = NWParameters.tcp
         params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
@@ -24,7 +24,7 @@ final class LocalServer {
         listener.start(queue: .global())
     }
 
-    private static func read(_ connection: NWConnection, _ buffered: Data, _ router: Router) {
+    private static func read(_ connection: NWConnection, _ buffered: Data, _ router: AppRouter) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { data, _, done, error in
             var buffer = buffered
             if let data { buffer.append(data) }
@@ -53,7 +53,7 @@ final class LocalServer {
             if let file = response.file {
                 if let bytes = try? Data(contentsOf: file) { payload = bytes } else { status = 404; payload = Data() }
             }
-            if path.hasPrefix("/api/") { print("\(request[0]) \(path) -> \(status)") }
+            if request[0] == "POST" { print("\(request[0]) \(path) -> \(status)") }
             let header = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: \(response.contentType)\r\n"
                 + "Content-Length: \(payload.count)\r\nCache-Control: \(response.cache)\r\nConnection: close\r\n\r\n"
             connection.send(content: Data(header.utf8) + payload, completion: .contentProcessed { _ in connection.cancel() })

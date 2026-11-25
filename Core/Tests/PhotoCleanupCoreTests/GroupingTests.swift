@@ -52,6 +52,30 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual(Set(r.photos.values.map(\.collection)), Set(r.collections.map(\.id)))
     }
 
+    func testAFolderOfYoursIsOneCollectionWhateverItsPhotosLookLike() {
+        // Half of the Seattle trip and two quiet days sit in folders; the rest lies loose.
+        var ps = library()
+        for i in ps.indices {
+            if ps[i].id.hasPrefix("sea16") || ps[i].id.hasPrefix("sea17") { ps[i].folder = "Seattle" }
+            if ps[i].id == "home2" || ps[i].id == "home7" { ps[i].folder = "Keepsakes" }
+        }
+        let r = group(ps)
+        let seattle = collection(r, holding: "sea16-0"), keepsakes = collection(r, holding: "home2")
+        XCTAssertEqual([seattle.sourceFolder, seattle.kind.rawValue, String(seattle.members.count)], ["Seattle", "trip", "6"])
+        XCTAssertEqual([keepsakes.sourceFolder, keepsakes.kind.rawValue], ["Keepsakes", "everyday"])
+        XCTAssertEqual(Set(keepsakes.members), ["home2", "home7"])
+        // The loose photos are grouped as if the folders were not there.
+        let loose = r.collections.filter { $0.sourceFolder == nil }
+        XCTAssertEqual(loose.map(\.kind), [.everyday, .event, .daytrip, .daytrip])
+        XCTAssertEqual(loose.map(\.members.count), [5, 22, 3, 4])
+        // An event in that month that is not one folds into the loose month, never into your folder.
+        let edited = group(ps, edits: GroupingEdits(notCollections: [["party0", "party1"]]))
+        XCTAssertEqual(collection(edited, holding: "party0").members.count, 27)
+        XCTAssertEqual(Set(collection(edited, holding: "home2").members), ["home2", "home7"])
+        // Without folders nothing changes.
+        XCTAssertTrue(group(library()).collections.allSatisfy { $0.sourceFolder == nil })
+    }
+
     func testMergeJoinsCollectionsAndCountsItsParts() {
         let before = group(library())
         let trip = collection(before, holding: "sea16-0").members, day = collection(before, holding: "phl0").members

@@ -37,6 +37,8 @@ public final class Router {
     static let staticTypes: [String: String] = ["html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8",
                                                 "css": "text/css; charset=utf-8", "svg": "image/svg+xml", "png": "image/png"]
     static let previewMaxPixels = 2400
+    /// Covers and the large favorite: sharper than a thumbnail, far lighter than the original.
+    static let midMaxPixels = 1280
 
     /// - Parameter appDir: the folder with index.html, app.js and app.css.
     public init(catalog: Catalog, appDir: URL) {
@@ -74,16 +76,29 @@ public final class Router {
             if let type = Self.browserSafe[src.pathExtension.lowercased()] {
                 return RouterResponse(contentType: type, file: src, cache: "max-age=86400")
             }
-            guard let preview = preview(of: id, source: src) else { return .error(500, "preview failed") }
+            guard let preview = preview(source: src, name: id, maxPixels: Self.previewMaxPixels) else { return .error(500, "preview failed") }
             return RouterResponse(contentType: "image/jpeg", file: preview, cache: "max-age=86400")
         }
-        // The page's own files. Only plain names inside the app folder are served.
+        if path.hasPrefix("/mid/") {
+            let id = String(path.dropFirst("/mid/".count))
+            guard let pid = Int64(id), let src = catalog.currentURL(of: id) else { return .notFound }
+            // While the drive is away (or the file is gone) the thumbnail stands in.
+            guard let mid = preview(source: src, name: "\(id).mid", maxPixels: Self.midMaxPixels) else {
+                return RouterResponse(contentType: "image/jpeg", file: catalog.library.thumbURL(pid), cache: "no-store")
+            }
+            return RouterResponse(contentType: "image/jpeg", file: mid, cache: "max-age=86400")
+        }
+        return Self.staticFile(path, in: appDir)
+    }
+
+    /// The page's own files. Only plain names inside the folder are served.
+    static func staticFile(_ path: String, in dir: URL) -> RouterResponse {
         let name = path == "/" ? "index.html" : String(path.dropFirst())
-        guard !name.isEmpty, !name.contains("/"), !name.hasPrefix("."), let type = Self.staticTypes[(name as NSString).pathExtension.lowercased()] else {
+        guard !name.isEmpty, !name.contains("/"), !name.hasPrefix("."), let type = staticTypes[(name as NSString).pathExtension.lowercased()] else {
             return .notFound
         }
-        // no-cache makes the web view revalidate, so it never runs an old app.js after an update.
-        return RouterResponse(contentType: type, file: appDir.appendingPathComponent(name), cache: "no-cache")
+        // no-cache makes the web view revalidate, so it never runs an old script after an update.
+        return RouterResponse(contentType: type, file: dir.appendingPathComponent(name), cache: "no-cache")
     }
 
     private func post(_ path: String, _ body: [String: Any]) throws -> RouterResponse {
@@ -124,12 +139,13 @@ public final class Router {
         }
     }
 
-    /// A JPEG the web view can show for formats it cannot (HEIC, RAW), made once per photo.
-    private func preview(of id: String, source: URL) -> URL? {
-        let target = catalog.library.previewsDir.appendingPathComponent("\(id).jpg")
+    /// A JPEG of a photo at most `maxPixels` on its long side, made once and kept: what the web view
+    /// shows for formats it cannot (HEIC, RAW), and the mid size.
+    private func preview(source: URL, name: String, maxPixels: Int) -> URL? {
+        let target = catalog.library.previewsDir.appendingPathComponent("\(name).jpg")
         previewLock.lock()
-        let lock = previewLocks[id] ?? NSLock()
-        previewLocks[id] = lock
+        let lock = previewLocks[name] ?? NSLock()
+        previewLocks[name] = lock
         previewLock.unlock()
         lock.lock()
         defer { lock.unlock() }
@@ -138,8 +154,8 @@ public final class Router {
         let props = (CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]) ?? [:]
         let longest = max(props[kCGImagePropertyPixelWidth] as? Int ?? 0, props[kCGImagePropertyPixelHeight] as? Int ?? 0)
         // Never upscale: a small original is converted at its own size.
-        guard let image = thumbnail(src, maxPixels: longest > 0 ? min(longest, Self.previewMaxPixels) : Self.previewMaxPixels) else { return nil }
-        let tmp = target.deletingLastPathComponent().appendingPathComponent("\(id).tmp-\(UUID().uuidString).jpg")
+        guard let image = thumbnail(src, maxPixels: longest > 0 ? min(longest, maxPixels) : maxPixels) else { return nil }
+        let tmp = target.deletingLastPathComponent().appendingPathComponent("\(name).tmp-\(UUID().uuidString).jpg")
         do {
             try writeJPEG(image, to: tmp, quality: 0.85)
             _ = try FileManager.default.replaceItemAt(target, withItemAt: tmp)

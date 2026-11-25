@@ -51,14 +51,18 @@ public struct GroupingPhoto: Sendable {
     public var utility: Bool
     public var gps: (lat: Double, lon: Double)?
     public var me: Bool
+    /// The folder directly inside the photo folder that holds this photo (at any depth), nil for a
+    /// photo that lies loose in the photo folder. Such a folder is a collection as it is.
+    public var folder: String?
 
     public init(id: String, rel: String, time: Double, timeKnown: Bool, width: Int, height: Int, size: Int,
                 faceQualities: [Double?] = [], meFace: Int? = nil, aesthetic: Double? = nil, sharpness: Double,
-                utility: Bool = false, gps: (lat: Double, lon: Double)? = nil, me: Bool = false) {
+                utility: Bool = false, gps: (lat: Double, lon: Double)? = nil, me: Bool = false, folder: String? = nil) {
         self.id = id; self.rel = rel; self.time = time; self.timeKnown = timeKnown
         self.width = width; self.height = height; self.size = size
         self.faceQualities = faceQualities; self.meFace = meFace; self.aesthetic = aesthetic
         self.sharpness = sharpness; self.utility = utility; self.gps = gps; self.me = me
+        self.folder = folder
     }
 }
 
@@ -97,6 +101,7 @@ public struct GroupedCollection: Sendable {
     public var parts: Int?  // set when it was merged from several collections
     public var folded: [FoldedNote]
     public var groups: [String]
+    public var sourceFolder: String? = nil  // set when it is a folder of yours, taken as a collection
 }
 
 public enum GroupKind: String, Codable, Sendable {

@@ -12,10 +12,10 @@ targets:
     type: application
     platform: macOS
     sources:
-      # Not "App": the page lives in app/, and the file system does not tell the two apart.
+      # Not "App": the old review page lives in app/, and the file system does not tell the two apart.
       - path: MacApp
-      # The review page, copied as it is and served to the web view through a custom URL scheme.
-      - path: app
+      # The interface: one web page, copied as it is and served to the web view through a custom URL scheme.
+      - path: ui
         type: folder
         buildPhase: resources
       # Compiled face model, made by scripts/convert_face_model.py (not in the repository).

@@ -8,30 +8,28 @@ struct PhotoCleanupApp: App {
         Window("Photo Cleanup", id: "main") {
             RootView()
                 .environmentObject(model)
-                .frame(minWidth: 1000, minHeight: 640)
+                .frame(minWidth: 1100, minHeight: 680)
         }
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 900)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Add Photo Folder…") { model.showAddFolder = true }
+                Button("Add Photo Folder…") { model.page("addFolder()") }
                     .keyboardShortcut("o")
                     .disabled(model.isBusy)
                 Divider()
                 Button("Scan for New Photos") { model.scan() }
                     .keyboardShortcut("r")
-                    .disabled(model.session == nil || model.isBusy)
-                Button("Import Review from the Old Scripts…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.message = "Choose the output folder of the old photo cleanup scripts (the one with analysis.jsonl)"
-                    panel.prompt = "Import"
-                    if panel.runModal() == .OK, let url = panel.url { model.importOldReview(from: url) }
-                }
-                .disabled(model.session == nil || model.isBusy)
-                Button("Close Library") { model.closeLibrary() }
+                    .disabled(!model.hasOpenFolder || model.isBusy)
+                Button("Import Review from the Old Scripts…") { model.importOldReview() }
+                    .disabled(!model.hasOpenFolder || model.isBusy)
+                Button("All Folders") { model.page("go('home')") }
                     .keyboardShortcut("w", modifiers: [.command, .shift])
-                    .disabled(model.session == nil)
+                    .disabled(!model.hasOpenFolder)
+            }
+            CommandGroup(replacing: .help) {
+                Button("Keyboard Shortcuts") { model.page("openHelp()") }
+                    .disabled(!model.hasOpenFolder)
             }
         }
 

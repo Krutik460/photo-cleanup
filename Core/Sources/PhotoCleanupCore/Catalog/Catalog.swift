@@ -60,11 +60,12 @@ public final class Catalog {
                     id: String(p.id!), rel: p.originalRelPath, time: taken ? p.taken! : p.mtime, timeKnown: taken,
                     width: p.width, height: p.height, size: p.size, faceQualities: faces[p.id!] ?? [], meFace: p.meFace,
                     aesthetic: p.aesthetic, sharpness: p.sharpness, utility: p.utility ?? false,
-                    gps: p.lat.flatMap { lat in p.lon.map { (lat, $0) } }, me: (p.meSim ?? -1) >= youThreshold)
+                    gps: p.lat.flatMap { lat in p.lon.map { (lat, $0) } }, me: (p.meSim ?? -1) >= youThreshold,
+                    folder: Self.topFolder(of: p.originalRelPath))
             }
             let neighbors = pairs.map { (a: String($0["a"] as Int64), b: String($0["b"] as Int64), distance: $0["distance"] as Double) }
             grouping = groupPhotos(input, neighbors: neighbors, edits: stored.grouping, knowsYou: knowsYou, timeZone: timeZone)
-            try? saveSummary()
+            _ = try? saveSummary()
         }
     }
 
@@ -93,9 +94,17 @@ public final class Catalog {
         return best.mapValues(\.name)
     }
 
+    /// Collections you switched "make a folder" on for. A folder of yours that is a collection needs
+    /// no switch: its photos are in their folder already, and nothing moves until you ask.
     func folderCollections() -> Set<String> {
         let owner = owner
         return Set(edits.folders.compactMap { homeOf($0.photos, owner) })
+    }
+
+    /// The folder directly inside the photo folder that a photo was found in, nil for a loose photo.
+    static func topFolder(of rel: String) -> String? {
+        let parts = rel.split(separator: "/", omittingEmptySubsequences: true)
+        return parts.count > 1 ? String(parts[0]) : nil
     }
 
     private func photoTime(_ id: String) -> Double? {
@@ -131,8 +140,9 @@ public final class Catalog {
                 var d: [String: Any] = [
                     "id": c.id, "kind": c.kind.rawValue, "start": c.start, "end": c.end, "timeKnown": c.timeKnown, "days": c.days,
                     "center": c.center as Any? ?? NSNull(), "homeKm": c.homeKm as Any? ?? NSNull(), "members": c.members,
-                    "groups": c.groups, "name": names[c.id] ?? "", "folder": folderName(c, name: names[c.id]), "folderOn": on.contains(c.id),
+                    "groups": c.groups, "name": names[c.id] ?? c.sourceFolder ?? "", "folder": folderName(c, name: names[c.id]), "folderOn": on.contains(c.id),
                 ]
+                if let source = c.sourceFolder { d["source"] = source }
                 if let parts = c.parts { d["parts"] = parts }
                 if !c.folded.isEmpty {
                     d["folded"] = c.folded.map {
@@ -188,6 +198,12 @@ public final class Catalog {
     }
 
     public func record(of photo: String) -> PhotoRecord? { locked { rows[photo] } }
+
+    /// True when a photo's file is not where the library last saw it: moved or deleted in Finder.
+    public func hasPhotosOffTheirPath() -> Bool {
+        let paths = locked { rows.values.filter { !$0.missing }.map { library.url(forRelPath: $0.relPath).path } }
+        return paths.contains { !FileManager.default.fileExists(atPath: $0) }
+    }
 
     // MARK: - Your choices
 
@@ -364,6 +380,8 @@ public final class Catalog {
         let d = cal.dateComponents([.year, .month, .day], from: Date(timeIntervalSince1970: c.start))
         let date = c.kind == .everyday ? String(format: "%04d-%02d", d.year!, d.month!) : String(format: "%04d-%02d-%02d", d.year!, d.month!, d.day!)
         let label: [CollectionKind: String] = [.trip: "Trip", .daytrip: "Day trip", .event: "Event", .everyday: "Everyday"]
+        // A folder of yours keeps its own name, exactly as it is on disk, until you rename the collection.
+        if (name ?? "").isEmpty, let source = c.sourceFolder { return source }
         let raw = (name ?? "").isEmpty ? "\(date) \(label[c.kind]!)" : name!
         return safeFolderName(raw) ?? date
     }

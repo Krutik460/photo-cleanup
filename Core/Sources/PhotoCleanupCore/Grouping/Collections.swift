@@ -29,11 +29,13 @@ final class Draft {
     var photos: [Shot]
     var parts: Int?
     var folded: [(key: String, note: FoldedNote)] = []
+    var folder: String?  // a folder of yours that is this collection
 
-    init(kind: CollectionKind, photos: [Shot] = [], parts: Int? = nil) {
+    init(kind: CollectionKind, photos: [Shot] = [], parts: Int? = nil, folder: String? = nil) {
         self.kind = kind
         self.photos = photos
         self.parts = parts
+        self.folder = folder
     }
 
     var days: Int { Set(photos.map(\.day)).count }
@@ -75,10 +77,12 @@ func findHome(_ ordered: [Shot]) -> (lat: Double, lon: Double)? {
 }
 
 /// Splits the timeline into trips (away from home), events (busy days at home) and everyday months,
-/// then applies your edits.
+/// then applies your edits. A folder you already made inside the photo folder is a collection as it
+/// is: its photos stay out of the timeline, so they neither join nor split what is detected.
 func buildCollections(_ shots: [Shot], edits: GroupingEdits) -> (collections: [GroupedCollection], home: (lat: Double, lon: Double)?) {
-    let ordered = shots.sorted(by: chronological)
-    let home = findHome(ordered)
+    let all = shots.sorted(by: chronological)
+    let home = findHome(all)
+    let ordered = all.filter { $0.p.folder == nil }
 
     // 1. Moments: runs of photos without a long pause or a big move.
     final class Moment {
@@ -156,6 +160,17 @@ func buildCollections(_ shots: [Shot], edits: GroupingEdits) -> (collections: [G
         }
     }
 
+    // Your own folders. What kind each one is follows from its photos, like a detected collection:
+    // mostly away from home is a trip or a day trip, one day at home an event, anything else everyday.
+    let folders = Dictionary(grouping: all.filter { $0.p.folder != nil }, by: { $0.p.folder! })
+    for name in folders.keys.sorted(by: scalarLess) {
+        let ps = folders[name]!
+        let pts = ps.compactMap(\.p.gps)
+        let away = home.map { h in !pts.isEmpty && pts.filter { km($0, h) > Tuning.awayKm }.count * 2 > pts.count } ?? false
+        let days = Set(ps.map(\.day)).count
+        drafts.append(Draft(kind: away ? (days > 1 ? .trip : .daytrip) : days == 1 ? .event : .everyday, photos: ps, folder: name))
+    }
+
     drafts = applyEdits(drafts, edits)
 
     for d in drafts { d.photos.sort(by: chronological) }
@@ -173,7 +188,7 @@ func buildCollections(_ shots: [Shot], edits: GroupingEdits) -> (collections: [G
             timeKnown: ps.allSatisfy(\.p.timeKnown), days: d.days,
             center: center.map { [rounded($0.lat, 4), rounded($0.lon, 4)] },
             homeKm: center.flatMap { c in home.map { Int(km(c, $0).rounded(.toNearestOrEven)) } },
-            members: ps.map(\.id), parts: (d.parts ?? 1) > 1 ? d.parts : nil, folded: folded, groups: []))
+            members: ps.map(\.id), parts: (d.parts ?? 1) > 1 ? d.parts : nil, folded: folded, groups: [], sourceFolder: d.folder))
     }
     return (out, home)
 }
@@ -236,7 +251,8 @@ func applyEdits(_ input: [Draft], _ edits: GroupingEdits) -> [Draft] {
         hits[home, default: []].append(anchor)
     }
     var everyday: [String: Draft] = [:]
-    for (i, c) in collections.enumerated() where c.kind == .everyday && hits[i] == nil {
+    // A folder of yours is never the month that takes in a trip or event that is not one.
+    for (i, c) in collections.enumerated() where c.kind == .everyday && hits[i] == nil && c.folder == nil {
         for s in c.photos where everyday[s.month] == nil { everyday[s.month] = c }
     }
     var kept = collections.enumerated().filter { hits[$0.offset] == nil }.map(\.element)

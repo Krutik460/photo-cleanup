@@ -8,7 +8,8 @@ usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.m
        photocleanup-cli import-review <library-dir> <old output folder> [--replace]   review done with the old scripts
        photocleanup-cli summary | clean-up | undo-clean-up <library-dir>              the library at a glance; the clean-up step
        photocleanup-cli page-data <library-dir>                                       what the review page is given, as JSON
-       photocleanup-cli serve <library-dir> <app-folder> [port]     the review page on localhost, for development
+       photocleanup-cli serve <libraries-dir> <ui-folder> [port] [--model <ArcFace.mlmodelc>]
+                                the app's interface on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but
            not recognised; pass it from the first scan on.
@@ -62,7 +63,7 @@ case "analyze":
             try who.match()
         }
         if who.hasReference {
-            let counts = try await library.store.db.read { db in
+            let counts = try library.store.db.read { db in
                 (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM photo WHERE me_sim >= ?", arguments: [youThreshold]) ?? 0,
                  try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM photo WHERE me_sim IS NOT NULL") ?? 0)
             }
@@ -129,14 +130,17 @@ case "import-review":
         fail(error.localizedDescription)
     }
 case "serve":
+    let model = option("--model").last
     guard args.count == 3 || args.count == 4 else { fail(usage) }
     do {
-        let library = try Library.open(at: path(args[1]))
-        let catalog = try Catalog(library: library)
+        // Everything the app shows, without the app: no file pickers, Finder or Settings window.
+        let embedder = try model.map { try CoreMLFaceEmbedder(compiledModelAt: path($0)) }
+        let workspace = Workspace(librariesDir: path(args[1]), uiDir: path(args[2]), embedder: embedder)
+        workspace.refreshClaude()
         let port = args.count == 4 ? UInt16(args[3]) ?? 8770 : 8770
-        let server = try LocalServer(router: Router(catalog: catalog, appDir: path(args[2])), port: port)
+        let server = try LocalServer(router: AppRouter(workspace: workspace), port: port)
         server.start()
-        print("Photo review: http://localhost:\(port)  (\(catalog.photoCount) photos, development only)")
+        print("Photo Cleanup: http://localhost:\(port)  (libraries in \(args[1]), development only)")
         dispatchMain()
     } catch {
         fail(error.localizedDescription)

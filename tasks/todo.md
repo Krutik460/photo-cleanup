@@ -915,3 +915,54 @@ once the foundation fixes the shared code; I review and integrate everything.
   app early so differences surface on one screen, not eight.
 - `ui/` replaces `app/` in the app only. The other session's uncommitted edit to `app/app.js` on
   `main` no longer matters to the app, but `README.md` will still conflict at merge.
+
+## Progress (2026-11-24)
+
+- [x] 1. Foundation. `Workspace` (Core/App) holds what is above one library; `AppRouter` answers
+  `/app/*` and passes the rest to the open library's `Router`; `/mid/<id>` (1,280 px, cached);
+  `photocleanup-cli serve <libraries-dir> <ui-folder>` runs the whole interface in a browser. The
+  Mac app is one web view under a hidden title bar; the traffic lights sit at 27/27 and are put
+  back whenever AppKit lays the title bar out again. Clicks under the title bar reach the page
+  (checked with a click sent through the app: the gear opened Settings).
+- [x] 2. Home and opening check: pictured in the app, light and dark, ready / signed out / missing.
+- [x] 3. Folder screen: sidebar, toolbar, cover grid, filters, search, selection bar, card menu,
+  merge hints, Merge with, rename in place (Escape cancels).
+- [x] 4. Review: bands, big favorite with swap, F K X U D S N, arrows by row, fold and Show, days
+  of single photos, selection and Move to, viewer (always dark), end panel, library views.
+- [x] 5. Finish sheet (both steps, in-place confirms, both undos), second-opinion popover, scan
+  pill and first-scan overlay, not-connected states.
+- [ ] 6. Polish at 1200 / 1728, reduced motion, real second opinion and scan pictured in the app.
+- [ ] 7. End-to-end file steps in the app on a scratch copy, fresh DMG, README.
+
+Decisions made on the way:
+
+- Photos marked remove are NOT dimmed (the mockup dimmed them). They keep their real look and get
+  a red frame and the x badge, in tiles, the viewer strip and the Finish strip. This follows the
+  standing preference recorded earlier (asked for twice).
+- A group has one favorite: starring another shot turns the earlier favorite into a keep, and the
+  new one takes the large place (as in the mockup).
+- Routes carry the folder: `#home`, `#<folder>/organize`, `#<folder>/c/<id>`, `#<folder>/view/<name>`.
+  Going home closes the folder (its summary is saved for the home screen).
+- Pictures of the app are taken with `WKWebView.takeSnapshot`, which does not draw backdrop blur.
+  On screen the glass blurs; in the pictures it only tints. Sheets are nearly solid for that reason
+  too: their text must not depend on the blur.
+- A web view in a covered window stops its timers and animations. The debug picture mode switches
+  that off for its own run (debug builds only).
+
+## Sub folders are collections (asked 2026-11-24)
+
+"each sub folder would be collection by default because thats how we are treating collections as"
+
+- A folder directly inside the photo folder (with everything under it) is one collection, named
+  after the folder. Its photos stay out of trip / event / month detection, so they neither join nor
+  split what is detected. What kind it is follows from its photos (away from home: trip or day
+  trip; one day at home: event; else everyday).
+- The folder is taken from where the photo was found (`original_rel_path`), so photos the app filed
+  into a collection folder do not turn into a new collection.
+- Nothing moves by default. The collection shows a Folder chip because it is one. Renaming it and
+  switching the folder on makes Organize move the photos to the new name; taking the name back
+  sends them home. Organize never flattens folders inside your folder.
+- Your edits still apply on top (merge, move, not a trip, names).
+- Not done: a photo you add by hand to a folder the app made becomes a collection of its own.
+- Tests: `testAFolderOfYoursIsOneCollectionWhateverItsPhotosLookLike`,
+  `testAFolderOfYoursIsACollectionAndStaysWhereItIs`. 92 tests pass.
