@@ -8,3 +8,12 @@ __pycache__/
 # Local machine settings
 .claude/settings.local.json
 .DS_Store
+
+# Swift build output
+/Core/.build/
+/dist/
+/build/
+*.xcodeproj
+
+# Working files of the launch video (the published video is in docs/)
+/brag-output*/

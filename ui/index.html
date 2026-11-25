@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo Cleanup</title>
+<link rel="stylesheet" href="/ui.css">
+</head>
+<body>
+<div id="app" data-screen="home">
+  <div class="ambient" id="ambient"></div>
+
+  <aside class="sidebar glass" id="sidebar"></aside>
+
+  <div class="edge"></div>
+  <header class="bar bar-home" id="bar-home"></header>
+  <header class="bar bar-folder" id="bar-folder"></header>
+
+  <main>
+    <section class="screen" id="s-home"></section>
+    <section class="screen" id="s-library"></section>
+    <section class="screen" id="s-review"></section>
+  </main>
+
+  <div class="dock glass" id="actionbar"></div>
+  <div class="dock glass" id="selectbar"></div>
+  <div class="viewer" id="viewer" hidden></div>
+  <div class="veil" id="veil"><div class="sheet glass" id="sheet" role="dialog" aria-modal="true"></div></div>
+  <div class="toast glass" id="toast" role="status"></div>
+  <div class="launch" id="launch"></div>
+</div>
+
+<script src="/core.js"></script>
+<script src="/shell.js"></script>
+<script src="/home.js"></script>
+<script src="/folder.js"></script>
+<script src="/review.js"></script>
+<script src="/viewer.js"></script>
+<script src="/finish.js"></script>
+<script src="/main.js"></script>
+</body>
+</html>

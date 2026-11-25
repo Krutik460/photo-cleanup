@@ -16,9 +16,9 @@ Collection ids change when regrouping, so a name, folder switch or edit is store
 the collection it was made on, and applies to the collection holding most of those photos now.
 
 Effective state of a photo = your decision, else Haiku's, else the automatic one.
-Nothing is ever deleted, and nothing moves until you click Move: then photos marked remove go into
-<photo-folder>/_to_remove, and kept photos of collections with "make a folder" on go into
-<photo-folder>/<date> <name>/. Undo puts everything back.
+Nothing is ever deleted, and files only move in the two steps of the Finish page, each with its own
+undo: "organize" puts the photos of collections with "make a folder" on into <photo-folder>/<date> <name>/
+(and can run before the review), "clean up" puts photos marked remove into <photo-folder>/_to_remove.
 """
 
 import hashlib
@@ -35,6 +35,8 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
+
+from group import current_locations
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.join(HERE, "app")
@@ -112,40 +114,31 @@ class Library:
                 "not_collections": e.get("not_collections") or []}
 
     def locations(self):
-        """Photos that are not at their original path: {photoId: {"op", "to", "chain"}}.
-
-        op "move" = in _to_remove, op "file" = in a collection folder. "chain" is every move since the
-        last restore (a filed photo can later be moved to _to_remove), so undo knows the original path.
-        """
-        chains = {}
-        if os.path.exists(self.moves_path):
-            with open(self.moves_path) as f:
-                for line in f:
-                    m = json.loads(line)
-                    if m["op"] == "restore":
-                        chains.pop(m["id"], None)
-                    else:
-                        chains.setdefault(m["id"], []).append(m)
-        return {pid: {"op": ch[-1]["op"], "to": ch[-1]["to"], "chain": ch}
-                for pid, ch in chains.items() if os.path.exists(ch[-1]["to"])}
+        """Photos that are not at their original path (see group.current_locations)."""
+        return current_locations(self.out)
 
     def regroup(self):
         r = subprocess.run([sys.executable, GROUP_PY, self.out], capture_output=True, text=True)
         if r.returncode != 0:
             raise RuntimeError("group.py failed: " + (r.stderr.strip().splitlines() or ["?"])[-1])
 
-    def carry_over(self, filed, eff):
+    def carry_over(self, filed):
         """Filed photos get new ids on the next ./analyze run, because ids come from the path.
 
-        Copy everything about them to the new ids (what you kept, reviewed marks, names, folder
-        switches, collection edits), so a rerun never suggests removing a photo you kept and filed.
-        The old entries stay: the page uses them until the rerun, and again after an undo.
+        Copy everything about them to the new ids: your choices, Haiku's picks, reviewed marks, names,
+        folder switches and collection edits, so a rerun keeps your review. Suggestions are not turned
+        into choices, since photos can be filed before they are reviewed. The old entries stay: the page
+        uses them until the rerun, and again after an undo.
         """
         new_id = {old: photo_id(os.path.relpath(dst, self.root)) for old, dst in filed}
         decisions = self.decisions()
-        for old, new in new_id.items():
-            decisions[new] = eff[old]
+        decisions.update({new_id[o]: decisions[o] for o in decisions.keys() & new_id.keys()})
         write_json(self.decisions_path, decisions)
+        haiku, carried_path = self.haiku(), os.path.join(self.out, "haiku", "carried.json")
+        carried = read_json(carried_path, {})
+        carried.update({new_id[o]: haiku[o] for o in haiku.keys() & new_id.keys()})
+        os.makedirs(os.path.dirname(carried_path), exist_ok=True)
+        write_json(carried_path, carried)
         reviewed = set(self.reviewed())
         write_json(self.reviewed_path, sorted(reviewed | {new_id[o] for o in reviewed & new_id.keys()}))
         add = lambda ids: ids + [new_id[o] for o in ids if o in new_id]
@@ -169,6 +162,31 @@ class Library:
     def log_move(self, entry):
         with open(self.moves_path, "a") as f:
             f.write(json.dumps(entry) + "\n")
+
+    def put_back(self, pid, loc):
+        """Undo every move of a photo: back to where it was before the first one, Live Photo video too."""
+        original = loc["chain"][0]["from"]
+        if os.path.exists(original):
+            raise OSError("a file already exists at the original location")
+        os.makedirs(os.path.dirname(original), exist_ok=True)
+        shutil.move(loc["to"], original)
+        for m in reversed(loc["chain"]):
+            for comp in m.get("companions", []):
+                if os.path.exists(comp["to"]) and not os.path.exists(comp["from"]):
+                    os.makedirs(os.path.dirname(comp["from"]), exist_ok=True)
+                    shutil.move(comp["to"], comp["from"])
+        self.log_move({"op": "restore", "id": pid, "from": loc["to"], "to": original, "at": time.time()})
+
+    def remove_empty(self, folders):
+        """Remove folders the moves created once they are empty (rmdir refuses anything else)."""
+        for top in folders:
+            if not os.path.isdir(top) or os.path.realpath(top) == self.root:
+                continue
+            for d, _, _ in sorted(os.walk(top), key=lambda w: -len(w[0])):
+                try:
+                    os.rmdir(d)
+                except OSError:
+                    pass
 
 
 def photo_id(rel):
@@ -279,6 +297,8 @@ class Handler(SimpleHTTPRequestHandler):
         """Merge, split, move photos, mark as not a trip/event, or restore; then regroup. Returns a
         photo id of the resulting collection, so the page can open it."""
         lib = self.lib
+        if not os.path.isdir(lib.root):
+            raise RuntimeError("The photo folder is not available. Connect the drive and try again.")
         data = lib.groups()
         owner = owners(data)
         targets = []
@@ -339,8 +359,109 @@ class Handler(SimpleHTTPRequestHandler):
         lib.regroup()
         return targets[0]["members"][0] if op != "restore" else next(iter(wanted))
 
+    def organize(self):
+        """Make the folders match the collections: every photo of a collection with "make a folder" on
+        goes into its folder (unless it is in _to_remove), photos filed for a collection that is now
+        switched off go back to where they came from, and emptied folders are removed."""
+        lib = self.lib
+        data = lib.groups()
+        locations = lib.locations()
+        on, names = folder_collections(data, lib.folders()), collection_names(data, lib.names())
+        filed, back, errors, emptied = [], 0, [], set()
+        for c in data.get("collections", []):
+            folder = os.path.join(lib.root, folder_name(c, names.get(c["id"]))) if c["id"] in on else None
+            for pid in c["members"]:
+                loc = locations.get(pid)
+                if loc and loc["op"] == "move":
+                    continue
+                current = loc["to"] if loc else data["photos"][pid]["path"]
+                if not os.path.exists(current):
+                    continue
+                if folder and os.path.isdir(folder) and os.path.samefile(os.path.dirname(current), folder):
+                    continue  # already in its folder (compared as folders, not as path spellings)
+                try:
+                    if folder:
+                        filed.append((pid, self.file_photo(pid, current, folder)))
+                    elif loc:
+                        lib.put_back(pid, loc)
+                        back += 1
+                    else:
+                        continue
+                    if loc:
+                        emptied.add(os.path.dirname(current))
+                except OSError as e:
+                    errors.append(f"{data['photos'][pid]['rel']}: {e}")
+        lib.remove_empty(emptied)
+        if filed:
+            lib.carry_over(filed)
+        return {"filed": len(filed), "back": back, "folders": len({os.path.dirname(d) for _, d in filed}), "errors": errors}
+
+    def cleanup(self, duplicates_only=False):
+        """Photos marked remove go to _to_remove, from wherever they are now (a collection folder too).
+
+        With duplicates_only, just the extra copies in groups of exact duplicates go (nothing to judge
+        there), and those groups count as reviewed afterwards, which takes them off the review list."""
+        lib = self.lib
+        data = lib.groups()
+        eff = lib.effective(data, lib.haiku(), lib.decisions())
+        locations = lib.locations()
+        duplicate_groups = [g for g in data["groups"] if g["kind"] == "duplicate"]
+        copies = {pid for g in duplicate_groups for pid in g["members"]}
+        moved, errors = 0, []
+        for pid, state in eff.items():
+            loc = locations.get(pid)
+            if state != "remove" or (loc and loc["op"] == "move") or (duplicates_only and pid not in copies):
+                continue
+            p = data["photos"][pid]
+            src = loc["to"] if loc else p["path"]
+            if not os.path.exists(src):
+                continue
+            dst = unique_target(os.path.join(lib.root, TRASH_DIR, p["rel"]))
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.move(src, dst)
+                lib.log_move({"op": "move", "id": pid, "from": src, "to": dst, "at": time.time()})
+                moved += 1
+            except OSError as e:
+                errors.append(f"{p['rel']}: {e}")
+        reviewed = 0
+        if duplicates_only:
+            gone = lib.locations()
+            done = [g for g in duplicate_groups
+                    if all(eff[pid] != "remove" or gone.get(pid, {}).get("op") == "move" for pid in g["members"])]
+            marks = set(lib.reviewed())
+            reviewed = sum(1 for g in done if not marks.issuperset(g["members"]))
+            write_json(lib.reviewed_path, sorted(marks.union(*(g["members"] for g in done))))
+        return {"moved": moved, "reviewed": reviewed, "errors": errors, "folder": os.path.join(lib.root, TRASH_DIR)}
+
+    def undo(self, step):
+        """Undo one step: "cleanup" puts photos from _to_remove back where they were just before (their
+        collection folder, if they were filed); "organize" puts filed photos back where they came from."""
+        lib = self.lib
+        restored, skipped, errors, emptied = 0, 0, [], {os.path.join(lib.root, TRASH_DIR)}
+        for pid, loc in lib.locations().items():
+            try:
+                if step == "cleanup" and loc["op"] == "move":
+                    dest = loc["chain"][-1]["from"]
+                    if os.path.exists(dest):
+                        raise OSError("a file already exists where it was")
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    shutil.move(loc["to"], dest)
+                    lib.log_move({"op": "back", "id": pid, "from": loc["to"], "to": dest, "at": time.time()})
+                    restored += 1
+                elif step == "organize" and loc["op"] == "file":
+                    lib.put_back(pid, loc)
+                    emptied.update(os.path.dirname(m["to"]) for m in loc["chain"])
+                    restored += 1
+                elif step == "organize" and any(m["op"] == "file" for m in loc["chain"]):
+                    skipped += 1  # filed, then moved to _to_remove: undo the clean-up first
+            except OSError as e:
+                errors.append(f"{loc['to']}: {e}")
+        lib.remove_empty(emptied)
+        return {"restored": restored, "skipped": skipped, "errors": errors}
+
     def file_photo(self, pid, src, folder):
-        """Move a kept photo into its collection folder, with its Live Photo video if it has one."""
+        """Move a photo into its collection folder, with its Live Photo video if it has one."""
         os.makedirs(folder, exist_ok=True)
         dst = unique_target(os.path.join(folder, os.path.basename(src)))
         stem = os.path.splitext(os.path.basename(src))[0]
@@ -470,9 +591,9 @@ class Handler(SimpleHTTPRequestHandler):
                 try:
                     anchor = self.edit_collections(body.get("op"), body.get("ids") or [], body.get("into"))
                 except ValueError as e:
-                    return self.send_error(HTTPStatus.BAD_REQUEST, str(e))
+                    return self.send_json({"error": str(e)}, HTTPStatus.BAD_REQUEST)
                 except RuntimeError as e:
-                    return self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, str(e))
+                    return self.send_json({"error": str(e)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return self.send_json({"anchor": anchor})
 
         if path == "/api/reviewed":
@@ -492,83 +613,19 @@ class Handler(SimpleHTTPRequestHandler):
                 write_json(lib.reviewed_path, reviewed)
             return self.send_json({"reviewed": reviewed})
 
-        if path == "/api/apply":
+        if path in ("/api/organize", "/api/cleanup", "/api/undo"):
+            if not os.path.isdir(lib.root):
+                return self.send_json({"error": "The photo folder is not available. Connect the drive and try again."},
+                                      HTTPStatus.SERVICE_UNAVAILABLE)
+            body = self.read_body()
             with lock:
-                data = lib.groups()
-                eff = lib.effective(data, lib.haiku(), lib.decisions())
-                locations = lib.locations()
-                moved, filed, errors = 0, [], []
-
-                # 1. Photos marked remove go to _to_remove (from wherever they are now).
-                for pid, state in eff.items():
-                    loc = locations.get(pid)
-                    if state != "remove" or (loc and loc["op"] == "move"):
-                        continue
-                    p = data["photos"][pid]
-                    src = loc["to"] if loc else p["path"]
-                    if not os.path.exists(src):
-                        continue
-                    dst = unique_target(os.path.join(lib.root, TRASH_DIR, p["rel"]))
-                    try:
-                        os.makedirs(os.path.dirname(dst), exist_ok=True)
-                        shutil.move(src, dst)
-                        lib.log_move({"op": "move", "id": pid, "from": src, "to": dst, "at": time.time()})
-                        moved += 1
-                    except OSError as e:
-                        errors.append(f"{p['rel']}: {e}")
-
-                # 2. Kept photos of collections with "make a folder" on go to <date> <name>/.
-                on, names = folder_collections(data, lib.folders()), collection_names(data, lib.names())
-                used = set()
-                for c in data.get("collections", []):
-                    if c["id"] not in on:
-                        continue
-                    folder = os.path.join(lib.root, folder_name(c, names.get(c["id"])))
-                    for pid in c["members"]:
-                        p = data["photos"][pid]
-                        src = p["path"]
-                        if eff[pid] == "remove" or pid in locations or not os.path.exists(src) \
-                                or os.path.dirname(src) == folder:
-                            continue
-                        try:
-                            filed.append((pid, self.file_photo(pid, src, folder)))
-                            used.add(folder)
-                        except OSError as e:
-                            errors.append(f"{p['rel']}: {e}")
-                if filed:
-                    lib.carry_over(filed, eff)
-            return self.send_json({"moved": moved, "filed": len(filed), "folders": len(used), "errors": errors,
-                                   "folder": os.path.join(lib.root, TRASH_DIR)})
-
-        if path == "/api/undo":
-            with lock:
-                restored, errors, emptied = 0, [], {os.path.join(lib.root, TRASH_DIR)}
-                for pid, loc in lib.locations().items():
-                    original = loc["chain"][0]["from"]
-                    try:
-                        if os.path.exists(original):
-                            raise OSError("a file already exists at the original location")
-                        os.makedirs(os.path.dirname(original), exist_ok=True)
-                        shutil.move(loc["to"], original)
-                        for m in loc["chain"]:
-                            emptied.add(os.path.dirname(m["to"]))
-                            for comp in m.get("companions", []):
-                                if os.path.exists(comp["to"]) and not os.path.exists(comp["from"]):
-                                    shutil.move(comp["to"], comp["from"])
-                        lib.log_move({"op": "restore", "id": pid, "from": loc["to"], "to": original, "at": time.time()})
-                        restored += 1
-                    except OSError as e:
-                        errors.append(f"{loc['to']}: {e}")
-                # Remove the folders the move created once they are empty again (rmdir refuses otherwise).
-                for top in emptied:
-                    if not os.path.isdir(top) or os.path.realpath(top) == lib.root:
-                        continue
-                    for d, _, _ in sorted(os.walk(top), key=lambda w: -len(w[0])):
-                        try:
-                            os.rmdir(d)
-                        except OSError:
-                            pass
-            return self.send_json({"restored": restored, "errors": errors})
+                if path == "/api/organize":
+                    result = self.organize()
+                elif path == "/api/cleanup":
+                    result = self.cleanup(body.get("only") == "duplicates")
+                else:
+                    result = self.undo(body.get("step"))
+            return self.send_json(result)
 
         self.send_error(HTTPStatus.NOT_FOUND)
 
