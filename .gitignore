@@ -14,3 +14,6 @@ __pycache__/
 /dist/
 /build/
 *.xcodeproj
+
+# Working files of the launch video (the published video is in docs/)
+/brag-output*/

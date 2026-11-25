@@ -966,3 +966,27 @@ Decisions made on the way:
 - Not done: a photo you add by hand to a folder the app made becomes a collection of its own.
 - Tests: `testAFolderOfYoursIsOneCollectionWhateverItsPhotosLookLike`,
   `testAFolderOfYoursIsACollectionAndStaysWhereItIs`. 92 tests pass.
+
+## Review of the Glass workspace rebuild (2026-11-24)
+
+- [x] 6. Pictured at 1200 x 760 and 1728 x 1080, light and dark; first scan pictured while running.
+- [x] 7. End to end through the interface on a scratch copy of 120 photos: add and scan (15
+  collections, one of them the sub folder), merge from the selection bar, rename from the card menu
+  (Return keeps, Escape cancels), keys x k f u d s Esc Return, a real second opinion (15 groups in
+  47 s), organize 7 photos into a folder, clean up 54 photos, undo both. The folder ended with the
+  same 120 files and no folder the app had made.
+- Not checked by hand: dragging the window from the toolbar and dropping a folder from Finder (both
+  need a real mouse); the blur behind glass (the app's own pictures cannot show it).
+
+## Going public (asked 2026-11-24)
+
+- The repo was public already. `mac-app` is pushed; PR 1 into `main` is open for the owner to merge
+  (another session has uncommitted edits on `main`). Review guide: `docs/pr/1-mac-app.md`.
+- Release v0.1.0 carries `Photo-Cleanup-0.1.0.dmg` built with `scripts/make-dmg.sh --public`:
+  no face model (InsightFace license: non-commercial research use), signed ad hoc, not notarized.
+  The binary holds no path or name from the build machine.
+- The earlier scripts stay until the other session's edits to them have landed.
+- Open: no LICENSE file yet (the owner's choice); notarization needs a Developer ID; a way to get a
+  face model inside the app (download on demand, or a model with a license that allows bundling).
+- Demo video: made with the brag skill (`brag-output/`, not committed), with drawn stand-in photos
+  only. The video and poster that are published live in `docs/`.
