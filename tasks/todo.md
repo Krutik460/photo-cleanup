@@ -986,7 +986,13 @@ Decisions made on the way:
   no face model (InsightFace license: non-commercial research use), signed ad hoc, not notarized.
   The binary holds no path or name from the build machine.
 - The earlier scripts stay until the other session's edits to them have landed.
-- Open: no LICENSE file yet (the owner's choice); notarization needs a Developer ID.
+- MIT license added (the owner left the choice to me). Open: notarization needs a Developer ID; no
+  CI yet (the tests use Vision, not yet tried on GitHub's runners).
+- README is a product page (icon, badges, features with pictures, install, privacy). Its screenshots
+  are the real app on a made-up folder of drawn pictures, with the folder path on screen replaced.
+  The repo's description and topics are set. The front page shows it once PR 1 is merged.
+- The launch video is `docs/assets/demo.mp4` (20 s, 1920x1080, with a synthesized soundtrack nobody
+  has listened to yet), with `demo.gif` as the README preview. It is also attached to release 0.2.0.
 
 ## A face model the download may carry (asked 2026-11-24, "go with option 2")
 
