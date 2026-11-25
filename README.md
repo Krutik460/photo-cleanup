@@ -16,6 +16,7 @@
     <a href="https://github.com/Krutik460/photo-cleanup/releases/latest"><img src="https://img.shields.io/github/v/release/Krutik460/photo-cleanup?label=latest&color=0a6cff" alt="Latest release" /></a>
     <a href="https://github.com/Krutik460/photo-cleanup/releases"><img src="https://img.shields.io/github/downloads/Krutik460/photo-cleanup/total?label=downloads&color=1c9d50" alt="Total downloads" /></a>
     <a href="#install"><img src="https://img.shields.io/badge/macOS-15%2B%20Apple%20silicon%20and%20Intel-black" alt="macOS 15 and newer, Apple silicon and Intel" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT" /></a>
     <a href="https://github.com/Krutik460/photo-cleanup/stargazers"><img src="https://img.shields.io/github/stars/Krutik460/photo-cleanup?color=f5b301" alt="GitHub stars" /></a>
   </p>
 
@@ -46,7 +47,10 @@ a `_to_remove` folder inside your photo folder. You delete that folder yourself,
 > its own undo: **Organize files** puts a collection's photos into a folder of their own, and
 > **Clean up** puts the photos you marked remove into `_to_remove`.
 
-<!-- demo -->
+<p align="center">
+  <a href="docs/assets/demo.mp4"><img src="docs/assets/demo.gif" width="760" alt="Photo Cleanup in 20 seconds: nine shots of the same sunset, one kept" /></a><br/>
+  <sub>Twenty seconds of Photo Cleanup. <a href="docs/assets/demo.mp4">Watch it with sound.</a> The pictures in it are drawn for the video.</sub>
+</p>
 
 ## What it does
 
@@ -242,3 +246,7 @@ they are now.
 
 - **SFace**, the face recognition model, from [OpenCV's model zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (Yaoyao Zhong and others), under the Apache License 2.0: `licenses/SFace-LICENSE.txt`. The app carries it converted to Core ML; the weights are unchanged.
 - **GRDB.swift** for SQLite, under the MIT license: `licenses/GRDB-LICENSE.txt`.
+
+## License
+
+Photo Cleanup is released under the [MIT License](LICENSE). The face model and GRDB keep their own licenses, listed above.
