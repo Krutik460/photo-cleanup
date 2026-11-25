@@ -38,7 +38,7 @@ final class AppModel: ObservableObject {
         let libraries = ProcessInfo.processInfo.environment["PHOTOCLEANUP_LIBRARIES"].map { URL(fileURLWithPath: $0) }
             ?? support.appendingPathComponent("Photo Cleanup/Libraries")
         // Face recognition model inside the app; nil when the app was built without it.
-        let embedder = Bundle.main.url(forResource: "ArcFace", withExtension: "mlmodelc").flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
+        let embedder = Bundle.main.url(forResource: "SFace", withExtension: "mlmodelc").flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
         recognisesFaces = embedder != nil
         var ui = Bundle.main.resourceURL!.appendingPathComponent("ui")
         #if DEBUG

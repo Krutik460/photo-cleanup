@@ -131,7 +131,8 @@ function headHTML() {
   if (v.lib) {
     const n = v.lib.groups ? pl(v.groups.length, 'group') : pl(v.flat.filter(live).length, 'photo');
     return '<div class="head"><div><div class="kicker">Library</div><h1>' + esc(v.lib.label) + '</h1><p>' + esc(v.lib.hint) + '</p></div>' +
-      '<div class="right"><div class="ring-lab" id="ringlab"></div></div></div>' +
+      '<div class="right"><div class="ring-lab" id="ringlab"></div>' +
+      (v.lib.id === 'you' && A.faceModel ? '<button class="btn glass" data-act="me" title="One to three clear photos of you. Every face in the folder is compared with them, on this Mac.">' + ic('person', 15) + 'Choose photos of you</button>' : '') + '</div></div>' +
       (v.items.length ? '' : '<div class="empty">' + esc(v.lib.empty || 'Nothing here.') + '</div>');
   }
   const c = v.col, plan = folderPlan(c);
@@ -486,7 +487,17 @@ document.addEventListener('dblclick', (e) => {
   const el = e.target.closest('#bands .tile');
   if (el && !e.target.closest('.pickbox')) openViewer(el.dataset.id);
 });
+// New photos of you for this folder: the app asks for them, then matches every face again.
+async function chooseMe() {
+  try {
+    const r = await appAction('choose', { kind: 'me' });
+    if (!r.paths || !r.paths.length) return;
+    await appAction('me', { paths: r.paths.slice(0, 3) });
+    toast('Looking for you in every photo of this folder.', null, 'person');
+  } catch (e) { oops(e); }
+}
 function reviewAct(a) {
+  if (a === 'me') chooseMe();
   if (a === 'move-to') openMoveTo();
   if (a === 'sel-clear') clearSelection();
   if (a === 'next-group') { const g = firstUnreviewed(); if (g) focusGroup(g); }

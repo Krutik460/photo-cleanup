@@ -199,6 +199,11 @@ public final class Catalog {
 
     public func record(of photo: String) -> PhotoRecord? { locked { rows[photo] } }
 
+    /// True when photos were analyzed by an earlier version of the app and are due again.
+    public func hasOutdatedAnalysis() -> Bool {
+        locked { rows.values.contains { $0.analysisVersion != analysisVersion } }
+    }
+
     /// True when a photo's file is not where the library last saw it: moved or deleted in Finder.
     public func hasPhotosOffTheirPath() -> Bool {
         let paths = locked { rows.values.filter { !$0.missing }.map { library.url(forRelPath: $0.relPath).path } }

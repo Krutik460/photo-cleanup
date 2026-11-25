@@ -25,6 +25,20 @@ final class MeTests: XCTestCase {
         return v.withUnsafeBufferPointer { Data(buffer: $0) }
     }
 
+    func testAReferenceFromAnotherFaceModelIsNotComparedAndIsKnownToBeStale() throws {
+        // A reference of 512 numbers (the earlier model) against faces of 128 numbers.
+        var short = [Float](repeating: 0, count: 128)
+        short[0] = 1
+        let id = try addPhoto("a.jpg", faces: [short.withUnsafeBufferPointer { Data(buffer: $0) }])
+        try setReference([vector(cos: 1)])
+        let me = Me(store: store)
+        XCTAssertTrue(me.referenceIsStale(dimensions: 128))
+        XCTAssertFalse(me.referenceIsStale(dimensions: 512))
+        XCTAssertEqual(me.referencePaths, ["me.jpg"])
+        try me.match()
+        XCTAssertNil(try match(id).sim)
+    }
+
     func addPhoto(_ rel: String, faces: [Data?]) throws -> Int64 {
         try store.db.write { db in
             try db.execute(sql: """
@@ -92,14 +106,15 @@ final class MeTests: XCTestCase {
     }
 
     func testReferencePhotoWithoutAFaceIsRejectedAndKeepsTheOldOne() async throws {
-        let model = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../models/ArcFace.mlmodelc").standardizedFileURL
+        let model = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../models/SFace.mlmodelc").standardizedFileURL
         try XCTSkipUnless(FileManager.default.fileExists(atPath: model.path), "run scripts/convert_face_model.py to test with the face model")
         let embedder = try CoreMLFaceEmbedder(compiledModelAt: model)
 
         // The embedder itself: unit length, right size, same answer twice.
         let crop = makePicture(seed: 5, size: faceCropSize)
         let e = try embedder.embed(crop)
-        XCTAssertEqual(e.count, 512)
+        XCTAssertEqual(e.count, 128)
+        XCTAssertEqual(embedder.dimensions, 128)
         XCTAssertEqual(e.reduce(0) { $0 + $1 * $1 }.squareRoot(), 1, accuracy: 0.0001)
         XCTAssertEqual(e, try embedder.embed(crop))
 

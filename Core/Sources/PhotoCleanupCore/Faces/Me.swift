@@ -1,8 +1,10 @@
 import Foundation
 import GRDB
 
-/// ArcFace cosine similarity: the same person is typically above 0.4, different people below 0.2.
-public let youThreshold = 0.36
+/// SFace cosine similarity, at the threshold its authors publish. On 2,374 real faces of one library
+/// the photos of its owner scored 0.49 and up (5th percentile) and other people's faces 0.31 and
+/// down (99.5th percentile).
+public let youThreshold = 0.363
 
 public enum FacesError: LocalizedError {
     case noUsableFace
@@ -23,6 +25,18 @@ public struct Me {
 
     public var hasReference: Bool {
         (try? store.db.read { try Bool.fetchOne($0, sql: "SELECT EXISTS (SELECT 1 FROM reference_face)") }) ?? false
+    }
+
+    /// The photos of you the reference was made from.
+    public var referencePaths: [String] {
+        (try? store.db.read { try String.fetchAll($0, sql: "SELECT source_path FROM reference_face ORDER BY rowid") }) ?? []
+    }
+
+    /// True when the reference was made with another face model than the one in use: its numbers
+    /// mean nothing to this one, so it has to be made again from the same photos.
+    public func referenceIsStale(dimensions: Int) -> Bool {
+        let sizes = (try? store.db.read { try Int.fetchAll($0, sql: "SELECT length(embedding) FROM reference_face") }) ?? []
+        return sizes.contains { $0 != dimensions * MemoryLayout<Float>.size }
     }
 
     /// Replaces the reference with the largest face of each given photo, then matches the library.
@@ -60,7 +74,8 @@ public struct Me {
             let rows = try Row.fetchCursor(db, sql: "SELECT photo_id, idx, embedding FROM face WHERE embedding IS NOT NULL ORDER BY photo_id, idx")
             while let row = try rows.next() {
                 let v = Self.floats(row["embedding"])
-                let sim = reference.map { r in zip(r, v).reduce(Float(0)) { $0 + $1.0 * $1.1 } }.max()!
+                // Embeddings of different models cannot be compared: only same-length ones count.
+                guard let sim = reference.filter({ $0.count == v.count }).map({ r in zip(r, v).reduce(Float(0)) { $0 + $1.0 * $1.1 } }).max() else { continue }
                 let pid: Int64 = row["photo_id"]
                 if best[pid] == nil || sim > best[pid]!.sim { best[pid] = (sim, row["idx"]) }
             }

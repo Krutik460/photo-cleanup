@@ -19,18 +19,22 @@ targets:
         type: folder
         buildPhase: resources
       # Compiled face model, made by scripts/convert_face_model.py (not in the repository).
-      - path: models/ArcFace.mlmodelc
+      - path: models/SFace.mlmodelc
         type: folder
         buildPhase: resources
         optional: true
+      # The licenses of what the app ships with (the face model, GRDB).
+      - path: licenses
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: PhotoCleanupCore
     settings:
       base:
         PRODUCT_NAME: Photo Cleanup
         PRODUCT_BUNDLE_IDENTIFIER: local.photocleanup.app
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.2.0"
+        CURRENT_PROJECT_VERSION: "2"
         SWIFT_VERSION: "5"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Photo Cleanup

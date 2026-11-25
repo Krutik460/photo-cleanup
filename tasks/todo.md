@@ -986,7 +986,25 @@ Decisions made on the way:
   no face model (InsightFace license: non-commercial research use), signed ad hoc, not notarized.
   The binary holds no path or name from the build machine.
 - The earlier scripts stay until the other session's edits to them have landed.
-- Open: no LICENSE file yet (the owner's choice); notarization needs a Developer ID; a way to get a
-  face model inside the app (download on demand, or a model with a license that allows bundling).
+- Open: no LICENSE file yet (the owner's choice); notarization needs a Developer ID.
+
+## A face model the download may carry (asked 2026-11-24, "go with option 2")
+
+- [x] SFace from OpenCV's model zoo: Apache 2.0 (checked in the zoo's folder), 37 MB, 128 numbers
+  per face, same 5-point alignment as before, input RGB 0..255 (the model normalizes itself; the
+  other three input conventions were tried and are far worse).
+- [x] Read-only comparison on the 2,374 face crops the old tool had saved, with ArcFace's answer
+  as the yardstick: at SFace's published threshold 0.363, 2 extra and 2 missed (best possible
+  agreement 99.87% at 0.335). Photos of the owner: 5th percentile 0.49, median 0.73; other faces:
+  99.5th percentile 0.31. `youThreshold` is 0.363.
+- [x] `scripts/convert_face_model.py` fetches the model (pinned SHA-256) and converts it; lowest
+  cosine against ONNX Runtime 0.9999999.
+- [x] The 120 sample photos scanned with SFace and the same reference photo: the same 19 photos of
+  the owner as with ArcFace (you 0.64 to 0.85, best other face 0.31).
+- [x] `analysisVersion` 5. A library made with the earlier model was opened in the new app: it
+  re-analyzed itself, made its reference again from the stored photo path, and found the same 19.
+- [x] "Choose photos of you" on Library > Photos of you, for a folder that is already added.
+- [x] Licenses of what ships (SFace, GRDB) are in `licenses/` and in the app's resources.
+- Release 0.2.0: the public DMG has face recognition (40 MB).
 - Demo video: made with the brag skill (`brag-output/`, not committed), with drawn stand-in photos
   only. The video and poster that are published live in `docs/`.

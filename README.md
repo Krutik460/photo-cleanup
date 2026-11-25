@@ -18,23 +18,16 @@ The app is not notarized by Apple, so the first launch is stopped with "Apple co
 System Settings > Privacy & Security, scroll to the message about Photo Cleanup and click Open
 Anyway. That is needed once.
 
-The download comes without the face recognition model, because that model's license (InsightFace,
-non-commercial research use) does not allow passing it on freely. Everything works without it except
-picking out the photos you are in. To have that too, build the app yourself:
-
-```bash
-./setup.sh
-```
+To build it yourself:
 
 ```bash
 scripts/make-dmg.sh
 ```
 
-`setup.sh` downloads the face model to `models/` (it also sets up the earlier scripts, see the end);
-`make-dmg.sh` converts the model to Core ML on its first run and builds
-`dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel), signed with the Apple Development
-identity on your Mac when there is one. `scripts/make-dmg.sh --public` builds the download as it is
-released: without the model and signed ad hoc. Building needs Xcode, `xcodegen` and `uv`.
+On its first run this fetches the face model (SFace from OpenCV's model zoo, 37 MB) and converts it to
+Core ML, then builds `dist/Photo-Cleanup-<version>.dmg` (Apple silicon and Intel), signed with the
+Apple Development identity on your Mac when there is one. `scripts/make-dmg.sh --public` builds the
+download as it is released: signed ad hoc. Building needs Xcode, `xcodegen` and `uv`.
 
 The second opinion is optional and uses your own installed
 [Claude Code](https://claude.com/claude-code) command and sign-in. The app shows how to set it up and
@@ -68,6 +61,9 @@ works without it.
   installed `claude` command with your Claude sign-in; no API key is stored. Small contact sheets of
   the photos are sent to Anthropic; file names, locations and face data stay on the Mac. Your own
   choices always win over its picks.
+- **Photos of you.** Give the app one to three clear photos of you (when adding a folder, or later
+  under Library > Photos of you). It then knows which shots you are in and keeps the best of them.
+  The comparison runs on your Mac.
 - **Light and dark.** The app follows the system appearance.
 
 ## How it works
@@ -75,7 +71,7 @@ works without it.
 | Step | Where | Runs |
 | --- | --- | --- |
 | Analyze every photo: similarity embedding, face quality, aesthetic score, sharpness, capture time, GPS, thumbnail | `Core/.../Analyzer` (Apple Vision) | on device |
-| Find the photos you are in: aligned face crops, ArcFace embeddings against your reference photo | `Core/.../Faces` (Core ML) | on device |
+| Find the photos you are in: aligned face crops, SFace embeddings against your photo of you | `Core/.../Faces` (Core ML) | on device |
 | Detect trips, events and everyday months; group similar shots; pick a favorite with a reason | `Core/.../Grouping` | on device |
 | Second opinion on each group, from one numbered contact sheet per group | `Core/.../Review` + the Claude CLI | Anthropic, through your CLI |
 | Your choices, names, merges and moves; organize, clean up, undo | `Core/.../Catalog` | on device |
@@ -126,7 +122,7 @@ window from the page's own toolbar).
 `import-review`, `summary`, `clean-up`, `undo-clean-up`, and `serve`:
 
 ```bash
-Core/.build/debug/photocleanup-cli serve <libraries-dir> ui 8770 --model models/ArcFace.mlmodelc
+Core/.build/debug/photocleanup-cli serve <libraries-dir> ui 8770 --model models/SFace.mlmodelc
 ```
 
 puts the whole interface on localhost for work in a browser (no pickers there: a folder is added with
@@ -145,3 +141,8 @@ The repository still holds the scripts the app replaces (`run.sh`, `analyze.swif
 in an output folder. File > Import Review from the Old Scripts brings such a folder's choices,
 reviewed marks, picks, names and collection edits into the open library, matching photos by where
 they are now.
+
+## What the app ships with
+
+- **SFace**, the face recognition model, from [OpenCV's model zoo](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) (Yaoyao Zhong and others), under the Apache License 2.0: `licenses/SFace-LICENSE.txt`. The app carries it converted to Core ML; the weights are unchanged.
+- **GRDB.swift** for SQLite, under the MIT license: `licenses/GRDB-LICENSE.txt`.

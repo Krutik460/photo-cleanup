@@ -2,11 +2,12 @@ import CoreGraphics
 import CoreML
 import Foundation
 
-/// ArcFace (w600k_r50) as a compiled Core ML model, made by scripts/convert_face_model.py.
-/// Takes an aligned 112x112 face crop and returns a unit-length 512-float identity embedding, so the
-/// similarity of two faces is the dot product of their embeddings.
+/// SFace (OpenCV's model zoo, Apache 2.0) as a compiled Core ML model, made by
+/// scripts/convert_face_model.py. Takes an aligned 112x112 face crop and returns a unit-length
+/// identity embedding (128 numbers), so the similarity of two faces is the dot product of their
+/// embeddings.
 public final class CoreMLFaceEmbedder: FaceEmbedder, @unchecked Sendable {
-    public static let dimensions = 512
+    public let dimensions: Int
     private let model: MLModel
     private let lock = NSLock()  // an MLModel serves one prediction at a time
 
@@ -14,6 +15,11 @@ public final class CoreMLFaceEmbedder: FaceEmbedder, @unchecked Sendable {
         let config = MLModelConfiguration()
         config.computeUnits = .all
         model = try MLModel(contentsOf: url, configuration: config)
+        let shape = model.modelDescription.outputDescriptionsByName["embedding"]?.multiArrayConstraint?.shape ?? []
+        dimensions = shape.reduce(1) { $0 * $1.intValue }
+        guard !shape.isEmpty, dimensions > 1 else {
+            throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "not a face model this app can use"])
+        }
     }
 
     public func embed(_ crop: CGImage) throws -> [Float] {
@@ -32,13 +38,14 @@ public final class CoreMLFaceEmbedder: FaceEmbedder, @unchecked Sendable {
         let input = try MLMultiArray(shape: [1, 3, NSNumber(value: n), NSNumber(value: n)], dataType: .float32)
         input.withUnsafeMutableBufferPointer(ofType: Float32.self) { p, _ in
             for i in 0..<(n * n) {
-                for c in 0..<3 { p[c * n * n + i] = (Float(rgba[i * 4 + c]) - 127.5) / 127.5 }
+                // RGB as it is, 0...255: the model does its own normalization.
+                for c in 0..<3 { p[c * n * n + i] = Float(rgba[i * 4 + c]) }
             }
         }
         lock.lock()
         defer { lock.unlock() }
         let output = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["face": input]))
-        guard let e = output.featureValue(for: "embedding")?.multiArrayValue, e.count == Self.dimensions, e.dataType == .float32 else {
+        guard let e = output.featureValue(for: "embedding")?.multiArrayValue, e.count == dimensions, e.dataType == .float32 else {
             throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "unexpected face model output"])
         }
         var v = e.withUnsafeBufferPointer(ofType: Float32.self) { Array($0) }

@@ -3,12 +3,12 @@ import PhotoCleanupCore
 
 // Drives the core without the app.
 let usage = """
-usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <ArcFace.mlmodelc>] [--me <photo of you> ...]
+usage: photocleanup-cli analyze <photo-folder> <library-dir> [--model <SFace.mlmodelc>] [--me <photo of you> ...]
        photocleanup-cli second-opinion <library-dir> [--limit <batches>] [--model haiku] [--claude <path>]
        photocleanup-cli import-review <library-dir> <old output folder> [--replace]   review done with the old scripts
        photocleanup-cli summary | clean-up | undo-clean-up <library-dir>              the library at a glance; the clean-up step
        photocleanup-cli page-data <library-dir>                                       what the review page is given, as JSON
-       photocleanup-cli serve <libraries-dir> <ui-folder> [port] [--model <ArcFace.mlmodelc>]
+       photocleanup-cli serve <libraries-dir> <ui-folder> [port] [--model <SFace.mlmodelc>]
                                 the app's interface on localhost, for development
 
   --model  compiled face model (scripts/convert_face_model.py). Without it faces are detected but

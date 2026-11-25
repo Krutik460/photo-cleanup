@@ -18,11 +18,13 @@ let thumbMaxPixels = 480
 let analysisMaxPixels = 1024
 
 /// Bump when the analysis gains or changes fields, so photos analyzed by an older version are redone.
-public let analysisVersion = 4
+public let analysisVersion = 5  // 5: faces are embedded with SFace
 
 /// Turns an aligned 112x112 face crop into an identity embedding. Called from several analysis tasks
 /// at once, so implementations must be safe to call concurrently.
 public protocol FaceEmbedder: Sendable {
+    /// How many numbers an embedding has. Embeddings of another model have another length.
+    var dimensions: Int { get }
     func embed(_ crop: CGImage) throws -> [Float]
 }
 
@@ -125,7 +127,8 @@ func sharpness(_ image: CGImage) -> Double {
 
 // MARK: - Face alignment for recognition
 
-/// ArcFace's canonical 5-point template in a 112x112 crop (top-left origin): eyes, nose tip, mouth corners.
+/// The canonical 5-point template in a 112x112 crop (top-left origin): eyes, nose tip, mouth corners.
+/// It comes from ArcFace and is what SFace expects too.
 let arcfaceTemplate: [CGPoint] = [
     CGPoint(x: 38.2946, y: 51.6963), CGPoint(x: 73.5318, y: 51.5014), CGPoint(x: 56.0252, y: 71.7366),
     CGPoint(x: 41.5493, y: 92.3655), CGPoint(x: 70.7299, y: 92.2041),

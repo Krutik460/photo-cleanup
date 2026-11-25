@@ -188,6 +188,13 @@ public final class Workspace {
             try remove(id: body["id"] as? String ?? "")
         case "scan":
             startScan()
+        case "me":
+            // New photos of you for the open folder: the reference is replaced and every face matched again.
+            guard embedder != nil else { throw WorkspaceError.invalid("This build of Photo Cleanup has no face recognition.") }
+            let photos = (body["paths"] as? [String] ?? []).map { URL(fileURLWithPath: $0) }
+            guard !photos.isEmpty else { throw WorkspaceError.invalid("No photo was chosen.") }
+            guard hasOpenFolder, !isBusy else { throw WorkspaceError.invalid("Wait for the scan to finish first.") }
+            startScan(photosOfYou: photos)
         case "scan-cancel":
             locked { scanTask }?.cancel()
         case "opinion":
@@ -231,7 +238,8 @@ public final class Workspace {
         // Files moved or deleted in Finder since the last visit are picked up without being asked.
         guard let s = locked({ session }), s.id == id, s.library.isPhotoFolderAvailable else { return }
         Task.detached { [weak self] in
-            guard s.catalog.hasPhotosOffTheirPath(), let self, self.locked({ self.session?.id }) == id else { return }
+            // So is what an earlier version of the app analyzed differently.
+            guard s.catalog.hasOutdatedAnalysis() || s.catalog.hasPhotosOffTheirPath(), let self, self.locked({ self.session?.id }) == id else { return }
             self.startScan()
         }
     }
@@ -321,6 +329,15 @@ public final class Workspace {
                     } catch {
                         message = (error.localizedDescription, true)
                         try me.match()
+                    }
+                } else if let embedder, me.hasReference, me.referenceIsStale(dimensions: embedder.dimensions) {
+                    // The reference was made with an earlier face model: make it again from the same photos.
+                    let photos = me.referencePaths.filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0) }
+                    var renewed = false
+                    if !photos.isEmpty { renewed = (try? await me.setReference(photos: photos, embedder: embedder)) != nil }
+                    if !renewed {
+                        try me.match()
+                        message = ("Faces are recognised in a new way now, and the photo of you could not be found again. Choose one under Photos of you.", false)
                     }
                 } else {
                     try me.match()

@@ -16,7 +16,8 @@
   the next open, each step has its own undo, and nothing is overwritten or deleted.
 - **Sub folders are collections.** A folder directly inside the photo folder is one collection, named
   after it; its photos stay out of trip and event detection.
-- **Public download.** `scripts/make-dmg.sh --public` builds a DMG without the face model, signed ad hoc.
+- **Public download.** `scripts/make-dmg.sh --public` builds the DMG that is released: signed ad hoc,
+  with a face model whose license allows shipping it (SFace, Apache 2.0).
 
 ## Entry point: opening the app and a folder
 
@@ -80,8 +81,12 @@ flowchart LR
 
 Decisions:
 
-- The face model runs through Core ML (converted from ONNX by `scripts/convert_face_model.py`, which
-  checks itself against the original). It is not in the public download because of its license.
+- The face model is SFace from OpenCV's model zoo (Apache 2.0), run through Core ML. It is fetched
+  and converted from ONNX by `scripts/convert_face_model.py`, which checks the result against the
+  original. The scripts' model (InsightFace ArcFace) may not be passed on, so the app does not use it.
+  On 2,374 real face crops SFace and ArcFace disagreed on 4; on the 120 sample photos they pick the
+  same 19 photos of the owner. A library analyzed with the earlier model re-analyzes itself when
+  opened, and its reference photo of you is embedded again.
 - A photo moved by hand keeps its row: an in-place photo takes the new path as its home; a filed or
   removed one keeps its original home, so undo still works.
 - A folder directly inside the photo folder is taken out of the timeline and becomes one collection

@@ -18,7 +18,7 @@ function go(hash) {
 const LIBRARY = [
   { id: 'all', label: 'All photos', icon: 'photos', hint: 'Every photo in the folder, oldest first.', photos: () => S.order },
   { id: 'you', label: 'Photos of you', icon: 'person', hint: 'Photos your face was recognized in. These are kept unless a better shot of the same moment exists.',
-    photos: () => S.order.filter((id) => S.photos[id].me), empty: 'No photos of you yet. Add a photo of you when you scan, and they will show up here.' },
+    photos: () => S.order.filter((id) => S.photos[id].me), empty: 'No photos of you yet. Choose a clear photo of you, and every photo you are in shows up here.' },
   { id: 'groups', label: 'Cleanup groups', icon: 'stack', hint: 'Every set of near-identical shots, across all trips and events.',
     groups: () => S.groups, empty: 'No near-identical photos were found.' },
   { id: 'close', label: 'Close calls', icon: 'scale', hint: 'Groups where the favorite was hard to pick. Worth a second look.',
