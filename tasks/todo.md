@@ -16,7 +16,7 @@ Code: this folder (see README.md).
 - [x] 6. Review page v1, verified in the browser (states, keyboard, lightbox, save, move/undo via API)
 - [x] 7. Fable redesign around trips and events, then verify end to end
 - [x] 7b. Keep-you policy: aligned face crops + local ArcFace (faces.py), you-first ranking, second distinct shot of you kept, aggressive pruning of photos without you, reasons on every automatic decision, YOU badges for Haiku, "Photos of you" view
-- [x] 8. Run on the real folder (`/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026`, output in `../photo-cleanup-data/2026`), Haiku review, open the page
+- [x] 8. Run on the real folder (`<the real photo folder>`, output in `../photo-cleanup-data/2026`), Haiku review, open the page
 - [ ] 9. Final move to `_to_remove` only when the user clicks it
 
 ## Safety
@@ -43,7 +43,7 @@ Verified on a generated 97-photo library with real EXIF dates and GPS (everyday 
 
 Face matching tested on 15 stock images from app bundles: the 7 images of the reference person scored 0.75-1.0, all others <= 0.14 (threshold 0.36). Found and fixed along the way: symlinked files were skipped, empty folders crashed the analyzer, and photos of you could be grouped with photos of other people.
 
-Real folder (2026-11-24): `/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026` -> `../photo-cleanup-data/2026`, reference photo in `me/krutik.jpg` there.
+Real folder (2026-11-24): `<the real photo folder>` -> `../photo-cleanup-data/2026`, reference photo in `me/<photo>.jpg` there.
 - 1,547 photos (videos are not analyzed) in 2 min 48 s from the external drive, 0 errors; 438 of them are Finder copies ("name 2.JPG"), giving 125 exact-duplicate groups.
 - Faces: you in 309 of 745 photos with faces; clean gap between matches and non-matches (12 faces between 0.2 and 0.36). Recall drops for sunglasses and motion blur with one reference photo.
 - 316 groups, 42 collections (4 trips, 11 day trips, 15 events, 12 everyday months). On-device: 1,162 to remove.
@@ -593,7 +593,7 @@ work is finished, not from `6e29afe`.
       shortcuts inside the web view tried by hand, a second window size.
       Incident: the test run that showed the sheet did not quit (terminate is refused while a sheet
       is open; fixed with exit). While it sat on screen for about a minute a library for
-      `/Volumes/KRUTIK/Pictures/2026` was created in it at 16:47:20, which no command of mine asked
+      `<another folder on the same drive>` was created in it at 16:47:20, which no command of mine asked
       for, so it was most likely added by hand in that window. I stopped that process without
       knowing, at 86 photos analyzed. The folder was only read. The library is still in the
       scratchpad (`apptest/libs/3678941E-...`) and has not been touched since.)
@@ -611,7 +611,7 @@ work is finished, not from `6e29afe`.
 - [ ] 8. Import of the existing library
       (2026-11-24 17:20: `Core/Sources/PhotoCleanupCore/Import/LegacyImport.swift` and
       `photocleanup-cli import-review`, 4 tests. Read-only run on the real folder
-      `/Volumes/KRUTIK/TEMP - Archieve/Pictures/2026` into a scratch library, nothing written to
+      `<the real photo folder>` into a scratch library, nothing written to
       the drive or to the old output folder:
       - scan: 1,161 images, all analyzed, 0 unreadable, 98.7 s. The old tool had analyzed 1,547.
       - accounting of the 1,547: 1,161 found, 128 written off by the old tool, 0 in `_to_remove`,
@@ -625,7 +625,7 @@ work is finished, not from `6e29afe`.
         importer does map, so the 92 is not independently confirmed.
       - result: 17 collections, 188 groups, 714 to remove; you in 246 of 570 photos with a face.
       OPEN, not resolved: 258 photos that carry review state are no longer under that folder and
-      the old log does not say they left. Where they are is unknown. `/Volumes/KRUTIK/Pictures/2026`
+      the old log does not say they left. Where they are is unknown. `<another folder on the same drive>`
       holds 4,545 images including same-name same-size copies of 1,164 old photos; whether the 258
       are there was not established. Not done: the comparison with the old page (it now shows a
       different set of photos), the face check on the matched 1,161 against `me.json`, the menu
