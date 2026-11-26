@@ -7,6 +7,11 @@ public enum PhotoLocation: String, Codable, Sendable {
     case toRemove = "to_remove"
 }
 
+public enum MediaKind: String, Codable, Sendable {
+    case photo, video
+}
+
+/// A photo or a video of the folder. Named for what most rows are.
 public struct PhotoRecord: Codable, FetchableRecord, MutablePersistableRecord, Sendable {
     public static let databaseTableName = "photo"
     public static let databaseColumnDecodingStrategy = DatabaseColumnDecodingStrategy.convertFromSnakeCase
@@ -34,6 +39,8 @@ public struct PhotoRecord: Codable, FetchableRecord, MutablePersistableRecord, S
     public var meSim: Double?
     public var meFace: Int?
     public var removedFromRel: String?
+    public var media: MediaKind
+    public var duration: Double?  // seconds, videos only
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

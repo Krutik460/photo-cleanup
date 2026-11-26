@@ -5,6 +5,7 @@ import GRDB
 /// libraries can be shown without opening and grouping each one.
 public struct LibrarySummary: Codable, Sendable, Equatable {
     public var photos = 0
+    public var videos = 0
     public var collections = 0
     public var groups = 0
     public var reviewedGroups = 0
@@ -19,6 +20,17 @@ public struct LibrarySummary: Codable, Sendable, Equatable {
     public var updated = 0.0
 
     public init() {}
+
+    /// A summary stored by an earlier version lacks what was added since: those count as zero.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func n(_ key: CodingKeys) -> Int { (try? c.decodeIfPresent(Int.self, forKey: key)) ?? 0 }
+        photos = n(.photos); videos = n(.videos); collections = n(.collections); groups = n(.groups)
+        reviewedGroups = n(.reviewedGroups); you = n(.you); filed = n(.filed); toRemove = n(.toRemove)
+        toRemoveBytes = n(.toRemoveBytes); removed = n(.removed); removedBytes = n(.removedBytes); waitingBytes = n(.waitingBytes)
+        covers = (try? c.decodeIfPresent([Int64].self, forKey: .covers)) ?? []
+        updated = (try? c.decodeIfPresent(Double.self, forKey: .updated)) ?? 0
+    }
 
     /// Space the clean-up has taken out of your photos: freed already, or waiting in _to_remove.
     public var savedBytes: Int { removedBytes }
@@ -47,7 +59,8 @@ extension Catalog {
             var s = LibrarySummary()
             let states = try effectiveStates()
             let reviewed = Set(try library.store.db.read { try Int64.fetchAll($0, sql: "SELECT photo_id FROM reviewed") }.map(String.init))
-            s.photos = rows.count
+            s.videos = rows.values.filter { $0.media == .video }.count
+            s.photos = rows.count - s.videos
             s.collections = grouping.collections.count
             s.groups = grouping.groups.count
             s.reviewedGroups = grouping.groups.filter { reviewed.isSuperset(of: $0.members) }.count

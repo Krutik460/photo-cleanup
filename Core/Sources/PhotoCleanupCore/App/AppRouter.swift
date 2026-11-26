@@ -9,11 +9,12 @@ public final class AppRouter {
         self.workspace = workspace
     }
 
-    public func handle(method: String, path: String, body: Data = Data()) -> RouterResponse {
+    /// - Parameter range: the request's `Range` header, which a video player sends.
+    public func handle(method: String, path: String, body: Data = Data(), range: String? = nil) -> RouterResponse {
         if path.hasPrefix("/app/") { return app(method, String(path.dropFirst("/app/".count)), body) }
-        if ["/api/", "/thumb/", "/mid/", "/full/"].contains(where: path.hasPrefix) {
+        if ["/api/", "/thumb/", "/mid/", "/full/", "/video/"].contains(where: path.hasPrefix) {
             guard let router = workspace.router else { return .error(409, "No folder is open.") }
-            return router.handle(method: method, path: path, body: body)
+            return router.handle(method: method, path: path, body: body, range: range)
         }
         guard method == "GET" else { return .error(405, "method not allowed") }
         return Router.staticFile(path, in: workspace.uiDir)

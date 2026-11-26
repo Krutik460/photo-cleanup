@@ -11,6 +11,8 @@ struct PageView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.setURLSchemeHandler(context.coordinator.handler, forURLScheme: SchemeHandler.scheme)
+        // A video opened in the viewer starts by itself, with its sound.
+        config.mediaTypesRequiringUserActionForPlayback = []
         // Tells the page it is inside the app: the window is dragged from the page's own toolbar.
         config.userContentController.addUserScript(WKUserScript(source: "document.documentElement.classList.add('in-app')",
                                                                 injectionTime: .atDocumentStart, forMainFrameOnly: true))

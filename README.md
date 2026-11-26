@@ -79,7 +79,11 @@ directly inside your photo folder is a collection as it is, named after the fold
 
 ### Review
 
-Each group of similar shots with its best one large, and the reason for the pick.
+One group of similar shots at a time. The group has the screen to itself: its best shot large, the
+others next to it, sized to the window, with the reason for the pick. `D` marks the group reviewed
+and shows the next one; the ticks under the title are the groups, and a click on one jumps there.
+After the last group of a collection come its photos with no look-alike, the ones suggested for
+removal first.
 
 | Key | What it does |
 | --- | --- |
@@ -88,12 +92,27 @@ Each group of similar shots with its best one large, and the reason for the pick
 | `X` | Remove |
 | `U` | Back to the suggestion |
 | `D` | Mark the group reviewed and go to the next one |
+| `[` `]` | The group before, the group after, without marking |
 | `S` | Select photos, to move them to another collection |
-| `Return` | Open the photo large |
+| `Return` | Open the photo large. The arrows then flip between the shots of the group |
+| `Space` | Play or pause a video |
 | `?` | All keys |
 
-A photo marked remove keeps its real look and gets a red frame, so you judge what you see. Reviewed
-groups fold away.
+A photo marked remove keeps its real look and gets a red frame, so you judge what you see. The
+switch **One at a time | All** in the head brings back the whole collection as one page, where
+reviewed groups fold away.
+
+### Videos
+
+Videos (`mov`, `mp4`, `m4v`, `3gp`) are part of the folder like photos: they join trips, events and
+months by when and where they were shot, show their length, and play in the large viewer. Organize
+files and Clean up move them like photos.
+
+- Only exact copies of a video are grouped; the original is kept and the copies are suggested for
+  removal. Two takes of the same scene are two videos.
+- No other video is ever suggested for removal. You can still mark one remove yourself.
+- The video half of a Live Photo (a `.mov` named like the photo next to it) is not a video of its
+  own. It goes wherever its photo goes, into `_to_remove` too.
 
 <p align="center">
   <img src="docs/assets/viewer.jpg" width="720" alt="The large viewer with the photo, its facts and the same keys" />
@@ -103,7 +122,7 @@ groups fold away.
 
 Two steps that move files. **Organize files** moves each switched-on collection into a folder named
 after it. **Clean up** moves the photos marked remove into `_to_remove`; exact duplicate copies can
-go first. Each step asks in place and has its own undo.
+go first. Each step asks in place and has its own undo. Videos move like photos.
 
 <p align="center">
   <img src="docs/assets/finish.jpg" width="720" alt="Finish: organize files and clean up, each with its own undo" />
@@ -151,6 +170,9 @@ Needs macOS 15 or later, Apple silicon or Intel.
   telemetry, and the app never listens on a network port.
 - The app's data about a folder lives in `~/Library/Application Support/Photo Cleanup/`. Your photos
   are only read, until you ask for one of the two steps in Finish.
+- Once a day the app asks GitHub whether a newer version has been released: one request for the
+  latest release of this repository, with nothing about your Mac or your photos in it. A newer
+  version shows an **Update** button; the app never replaces itself. Settings has the switch.
 - The only thing that can leave the Mac is the optional second opinion: small contact sheets of the
   groups go to Anthropic through your own Claude Code command. File names, locations and face data
   stay on the Mac.
@@ -160,6 +182,7 @@ Needs macOS 15 or later, Apple silicon or Intel.
 | Step | Where | Runs |
 | --- | --- | --- |
 | Analyze every photo: similarity embedding, face quality, aesthetic score, sharpness, capture time, GPS, thumbnail | `Core/.../Analyzer` (Apple Vision) | on device |
+| Read every video: length, size, when and where it was shot, and one poster frame that goes through the same analysis as a photo | `Core/.../Analyzer` (AVFoundation) | on device |
 | Find the photos you are in: aligned face crops, SFace embeddings against your photo of you | `Core/.../Faces` (Core ML) | on device |
 | Detect trips, events and everyday months; group similar shots; pick a favorite with a reason | `Core/.../Grouping` | on device |
 | Second opinion on each group, from one numbered contact sheet per group | `Core/.../Review` + the Claude CLI | Anthropic, through your CLI |
@@ -172,15 +195,21 @@ Needs macOS 15 or later, Apple silicon or Intel.
 - Photos without you: a group keeps only its single best shot; near-repeats anywhere in the same trip
   or event are grouped; singles are suggested for removal when blurry, a screenshot or document, or in
   the bottom 35% by quality.
+- Videos: exact copies form a group and the original is kept. A video on its own is always kept.
 - A photo's state is, in order: your choice, else Claude's pick, else the on-device pick.
 
 ### Where things are kept
 
 Each photo folder has a library in `~/Library/Application Support/Photo Cleanup/Libraries/<id>/`:
-`library.sqlite` (everything known and decided about the photos) plus thumbnails and previews, which
-can always be rebuilt. A photo is a row in that database, not a path: moving or renaming a file, in
-the app or in Finder, keeps everything decided about it. Every file the app moves is written to the
-`file_move` table before it moves, so a crash mid-step cannot lose track of a file.
+`library.sqlite` (everything known and decided about the photos and videos) plus thumbnails. A photo
+is a row in that database, not a path: moving or renaming a file, in the app or in Finder, keeps
+everything decided about it. Every file the app moves is written to the `file_move` table before it
+moves, so a crash mid-step cannot lose track of a file.
+
+What can be made again lives in `~/Library/Caches/local.photocleanup.app/`, where macOS may reclaim
+it: the larger previews of photos you opened, and Core ML's compiled copy of the face model. Core ML
+makes such a copy for every place the app was started from and never removes one, so the app
+empties that cache when it holds more than the one copy in use.
 
 ## Development
 
@@ -217,6 +246,16 @@ second opinion) comes from `Workspace` in the core and is answered by `AppRouter
 everything about the open folder is answered by its `Router` under `/api/*`. The Mac app feeds both
 from a custom URL scheme and adds what only a Mac app can do (pickers, Finder, Settings, moving the
 window from the page's own toolbar).
+
+To run a build next to an installed Photo Cleanup without touching its data, build it under another
+identifier:
+
+```bash
+xcodebuild -project PhotoCleanup.xcodeproj -scheme PhotoCleanup -derivedDataPath build/DerivedData PRODUCT_BUNDLE_IDENTIFIER=local.photocleanup.app.dev build
+```
+
+A copy with another identifier keeps its libraries in `~/Library/Application Support/<identifier>/`
+and its caches and settings under that identifier too.
 
 `Core/.build/debug/photocleanup-cli` drives the core without the app: `analyze`, `second-opinion`,
 `import-review`, `summary`, `clean-up`, `undo-clean-up`, and `serve`:

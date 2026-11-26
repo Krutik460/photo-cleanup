@@ -36,18 +36,12 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
             stream.close()
         }
         let method = request.httpMethod ?? "GET", path = url.path.isEmpty ? "/" : url.path
+        let range = request.value(forHTTPHeaderField: "Range")  // a video is played in parts
         // Previews and regrouping take a moment: never on the main thread.
         queue.async { [router] in
-            var response = router.handle(method: method, path: path, body: body)
-            var payload = response.body
-            if let file = response.file {
-                if let bytes = try? Data(contentsOf: file, options: .mappedIfSafe) {
-                    payload = bytes
-                } else {
-                    response.status = 404
-                    payload = Data()
-                }
-            }
+            var response = router.handle(method: method, path: path, body: body, range: range)
+            var payload = Data()
+            if let bytes = response.payload() { payload = bytes } else { response.status = 404 }
             DispatchQueue.main.async { self.finish(task, id, response, payload) }
         }
     }
@@ -59,8 +53,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
     /// A task the web view stopped must not be answered: WebKit raises an exception if it is.
     private func finish(_ task: WKURLSchemeTask, _ id: ObjectIdentifier, _ response: RouterResponse, _ payload: Data) {
         guard active.remove(id) != nil, let url = task.request.url else { return }
-        let headers = ["Content-Type": response.contentType, "Content-Length": "\(payload.count)", "Cache-Control": response.cache]
-        guard let http = HTTPURLResponse(url: url, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: headers) else {
+        guard let http = HTTPURLResponse(url: url, statusCode: response.status, httpVersion: "HTTP/1.1", headerFields: response.headers(length: payload.count)) else {
             task.didFailWithError(URLError(.badServerResponse))
             return
         }

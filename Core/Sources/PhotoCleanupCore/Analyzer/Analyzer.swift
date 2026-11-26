@@ -14,8 +14,9 @@ public struct ScanProgress: Sendable {
 }
 
 public struct ScanSummary: Sendable, Equatable {
-    public var found = 0  // image files in the photo folder
+    public var found = 0  // photos and videos in the photo folder
     public var analyzed = 0  // new or changed files analyzed in this scan
+    public var analyzedVideos = 0  // how many of those are videos
     public var relinked = 0  // known photos found again at a new path
     public var missing = 0  // known photos whose file is gone
     public var failed: [String] = []  // paths that could not be decoded
@@ -40,6 +41,7 @@ public final class Analyzer {
         let rel: String
         let size: Int
         let mtime: Double
+        let media: MediaKind
     }
 
     struct Known {
@@ -58,9 +60,6 @@ public final class Analyzer {
     public func run(progress: @escaping @Sendable (ScanProgress) -> Void = { _ in }) async throws -> ScanSummary {
         guard library.isPhotoFolderAvailable else { throw LibraryError.photoFolderUnavailable(library.root.path) }
         progress(ScanProgress(phase: .listing))
-        let files = listImages()
-        var summary = ScanSummary(found: files.count)
-
         let known = try await library.store.db.read { db in
             try Row.fetchAll(db, sql: "SELECT id, rel_path, size, mtime, analysis_version, width, error, fingerprint, location, missing FROM photo").map {
                 Known(id: $0["id"], relPath: $0["rel_path"], size: $0["size"], mtime: $0["mtime"], version: $0["analysis_version"],
@@ -69,6 +68,8 @@ public final class Analyzer {
             }
         }
         let byPath = Dictionary(uniqueKeysWithValues: known.map { ($0.relPath, $0) })
+        let files = listFiles(known: Set(byPath.keys))
+        var summary = ScanSummary(found: files.count)
 
         // Sort every file into: nothing to do, analyze again (same photo), or not seen at this path before.
         var todo: [(file: FoundFile, id: Int64?)] = []
@@ -156,9 +157,9 @@ public final class Analyzer {
             var next = 0
             func add() {
                 guard next < todo.count, !Task.isCancelled else { return }
-                let i = next, url = todo[i].file.url
+                let i = next, url = todo[i].file.url, video = todo[i].file.media == .video
                 next += 1
-                group.addTask { (i, await analyzeImage(at: url, embedder: embedder)) }
+                group.addTask { (i, video ? await analyzeVideo(at: url, embedder: embedder) : await analyzeImage(at: url, embedder: embedder)) }
             }
             for _ in 0..<maxConcurrent { add() }
             for await (i, result) in group {
@@ -170,6 +171,7 @@ public final class Analyzer {
                     summary.failed.append("\(item.file.rel): \(error.localizedDescription)")
                 }
                 summary.analyzed += 1
+                if item.file.media == .video { summary.analyzedVideos += 1 }
                 state.done += 1
                 state.failed = summary.failed.count
                 progress(state)
@@ -200,8 +202,10 @@ public final class Analyzer {
                 record = PhotoRecord(id: nil, relPath: file.rel, originalRelPath: file.rel, fingerprint: nil, size: 0, mtime: 0,
                                      taken: nil, width: 0, height: 0, aesthetic: nil, utility: nil, sharpness: 0, feature: nil,
                                      lat: nil, lon: nil, analysisVersion: analysisVersion, error: nil, location: .inPlace, missing: false,
-                                     meSim: nil, meFace: nil, removedFromRel: nil)
+                                     meSim: nil, meFace: nil, removedFromRel: nil, media: file.media, duration: nil)
             }
+            record.media = file.media
+            record.duration = a.duration
             record.fingerprint = fp
             record.size = a.size
             record.mtime = a.mtime
@@ -230,11 +234,16 @@ public final class Analyzer {
         if let thumb = a.thumbnail {
             try writeJPEG(thumb, to: library.thumbURL(photoId))
         }
-        // A preview made from the previous version of the file is stale now; it is remade on demand.
-        try? FileManager.default.removeItem(at: library.previewsDir.appendingPathComponent("\(photoId).jpg"))
+        // Previews made from the previous version of the file are stale now; they are remade on demand.
+        for name in ["\(photoId).jpg", "\(photoId).mid.jpg"] {
+            try? FileManager.default.removeItem(at: library.previewsDir.appendingPathComponent(name))
+        }
     }
 
-    func listImages() -> [FoundFile] {
+    /// Every photo and video in the photo folder. The video half of a Live Photo (a .mov named like
+    /// a photo next to it) is left out: it belongs to its photo. A video the library already knows
+    /// at its path (`known`) is a video of its own, whatever lies next to it.
+    func listFiles(known: Set<String> = []) -> [FoundFile] {
         let root = library.root
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey]
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
@@ -249,10 +258,18 @@ public final class Analyzer {
             if values?.isSymbolicLink == true {  // follow links to files (not to folders, to avoid cycles)
                 isFile = (try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
             }
-            guard isFile, imageExtensions.contains(url.pathExtension.lowercased()), let rel = relativePath(of: url) else { continue }
+            let ext = url.pathExtension.lowercased()
+            guard isFile, let media: MediaKind = imageExtensions.contains(ext) ? .photo : videoExtensions.contains(ext) ? .video : nil,
+                  let rel = relativePath(of: url) else { continue }
             let attrs = (try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)) ?? [:]
             out.append(FoundFile(url: url, rel: rel, size: (attrs[.size] as? NSNumber)?.intValue ?? 0,
-                                 mtime: (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0))
+                                 mtime: (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0, media: media))
+        }
+        // "Trip/IMG_10" is a photo: "Trip/IMG_10.MOV" next to it is its Live Photo video.
+        let photos = Set(out.filter { $0.media == .photo }.map { ($0.rel as NSString).deletingPathExtension })
+        out.removeAll { f in
+            f.media == .video && !known.contains(f.rel) && livePhotoVideoExtensions.contains(f.url.pathExtension.lowercased())
+                && photos.contains((f.rel as NSString).deletingPathExtension)
         }
         return out.sorted { $0.rel < $1.rel }
     }

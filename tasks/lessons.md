@@ -33,3 +33,17 @@
   boldly and confirmed beats eight screens recolored.
 - Rule: judge my own screenshots against those references before sending them, and say plainly when a
   screen is only recolored.
+
+## The installed app is the owner's: test with a separate copy, and leave nothing behind
+
+- Pattern (2026-11-25): a debug build has the same bundle identifier as the installed app, so it
+  shares its caches, preferences and web data, and without `PHOTOCLEANUP_LIBRARIES` it would open
+  (and migrate) the real library. The owner said, while the build was running: the app is
+  installed for real use, test with a separate copy, and remove everything about it afterwards.
+- Rule: build the test copy with `PRODUCT_BUNDLE_IDENTIFIER=local.photocleanup.app.dev` (it then
+  keeps its own libraries, caches and settings), run it on a scratch folder only, and when done
+  delete the build, `~/Library/{Caches,WebKit,HTTPStorages,Application Support,Saved Application
+  State}/local.photocleanup.app.dev*`, its preferences, the command line tool's caches and the
+  scratch folders. Say in the report what was removed.
+- Rule: a migration is a one-way change to someone's data. Never let a development build open a
+  real library, even to look.

@@ -50,7 +50,7 @@ case "analyze":
                 print("\(p.done)/\(p.total)  (\(p.failed) could not be read)")
             }
         }
-        print(String(format: "found %d images: analyzed %d, found again at a new path %d, missing %d, unreadable %d, in %.1f s",
+        print(String(format: "found %d photos and videos: analyzed %d, found again at a new path %d, missing %d, unreadable %d, in %.1f s",
                      summary.found, summary.analyzed, summary.relinked, summary.missing, summary.failed.count, Date().timeIntervalSince(start)))
         for f in summary.failed { print("  unreadable: \(f)") }
 

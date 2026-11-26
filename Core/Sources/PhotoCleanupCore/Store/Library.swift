@@ -19,8 +19,15 @@ public final class Library {
     public let store: Store
     public let root: URL
 
+    /// Where previews go when the app says so: a caches folder, which macOS may empty when the disk
+    /// is full. They are made again when a photo is opened. Nil (the command line tool, tests): next
+    /// to the library. Thumbnails always stay with the library: they stand in while a drive is away.
+    nonisolated(unsafe) public static var previewsRoot: URL?
+
     public var thumbsDir: URL { dir.appendingPathComponent("thumbs") }
-    public var previewsDir: URL { dir.appendingPathComponent("previews") }
+    public var previewsDir: URL {
+        Library.previewsRoot?.appendingPathComponent(dir.lastPathComponent) ?? dir.appendingPathComponent("previews")
+    }
     public var sheetsDir: URL { dir.appendingPathComponent("sheets") }
 
     public func thumbURL(_ id: Int64) -> URL { thumbsDir.appendingPathComponent("\(id).jpg") }
@@ -40,6 +47,9 @@ public final class Library {
         for d in [thumbsDir, previewsDir, sheetsDir] {
             try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         }
+        // Previews an earlier version kept with the library: they are made again where they go now.
+        let old = dir.appendingPathComponent("previews")
+        if previewsDir != old { try? FileManager.default.removeItem(at: old) }
     }
 
     public static func create(at dir: URL, photoFolder: URL, name: String? = nil) throws -> Library {
@@ -62,8 +72,11 @@ public final class Library {
 
     public var name: String { (try? store.meta("name")) ?? root.lastPathComponent }
 
-    /// Photos that are in the folder and could be read.
-    public var photoCount: Int {
-        (try? store.db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM photo WHERE missing = 0 AND width > 0") ?? 0 }) ?? 0
+    /// Photos and videos that are in the folder and could be read.
+    public var photoCount: Int { count(of: nil) }
+
+    public func count(of media: MediaKind?) -> Int {
+        let only = media.map { " AND media = '\($0.rawValue)'" } ?? ""
+        return (try? store.db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM photo WHERE missing = 0 AND width > 0" + only) ?? 0 }) ?? 0
     }
 }

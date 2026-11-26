@@ -22,7 +22,7 @@ function colCard(c, hint) {
     '<div class="ccap">' +
     (hint ? '<button class="mhint" data-merge-hint="' + esc(c.id) + '" title="Merge these two into one collection">' + ic('merge', 12) + '<span>' + esc(gapText(hint)) + '</span><b>Merge</b></button>' : '') +
     '<h3' + (U.renaming === c.id ? ' contenteditable="true" spellcheck="false"' : '') + '>' + esc(title) + '</h3>' +
-    '<div class="sub"><p>' + esc(colMeta(c, true)) + ' · ' + pl(st.photos, 'photo') + '</p>' +
+    '<div class="sub"><p>' + esc(colMeta(c, true)) + ' · ' + tallyShort(st) + '</p>' +
     (st.remove ? '<span class="rm"><i></i>' + num(st.remove) + ' to remove</span>' : '') + '</div></div>' +
     '</div></article>';
 }
@@ -50,7 +50,7 @@ function renderLibrary() {
     : !list.length ? '<div class="empty">No collection matches' + (U.q.trim() ? ' "' + esc(U.q.trim()) + '"' : '') + '</div>'
     : years.map((g) => (years.length > 1 ? '<h3 class="yr">' + esc(g.y) + '</h3>' : '') + '<div class="grid' + picking + '">' + g.a.map((c) => colCard(c, hints.get(c.id))).join('') + '</div>').join('');
   el.innerHTML =
-    '<div class="head"><div><h1>' + esc(f.name) + '</h1><p><b>' + pl(S.collections.length, 'collection') + '</b> · ' + pl(t.photos, 'photo') + ' · ' + pl(t.left, 'group') + ' to review · ' + num(t.remove) + ' marked remove' + (t.remove ? ', ' + bytes(t.bytes).t : '') + '</p></div>' +
+    '<div class="head"><div><h1>' + esc(f.name) + '</h1><p><b>' + pl(S.collections.length, 'collection') + '</b> · ' + tallyAll(t) + ' · ' + pl(t.left, 'group') + ' to review · ' + num(t.remove) + ' marked remove' + (t.remove ? ', ' + bytes(t.bytes).t : '') + '</p></div>' +
     '<div class="right"><button class="btn primary" data-act="start">' + (t.left ? 'Review ' + pl(t.left, 'group') : 'Finish') + ic('arrowR', 15) + '</button></div></div>' +
     (kinds.length > 1 ? '<div class="filters"><button class="fchip' + (U.kind === 'all' ? ' on' : '') + '" data-kind="all">All<em>' + S.collections.length + '</em></button>' +
       kinds.map((k) => '<button class="fchip' + (U.kind === k.k ? ' on' : '') + '" data-kind="' + k.k + '">' + KINDS[k.k] + '<em>' + k.n + '</em></button>').join('') + '</div>' : '') +
@@ -167,7 +167,7 @@ function colMenuItems(c) {
 function pickRow(o, attrs, tail) {
   const cover = coverPhotos(o, 1)[0];
   return '<button class="pk" ' + attrs + '><span class="th">' + (cover ? img(thumbSrc(cover)) : '') + '</span><span class="tx"><b>' + esc(colTitle(o)) + '</b><small>' +
-    esc([KIND[o.kind], fmtRange(o, true), pl(o.members.length, 'photo')].join(' · ')) + '</small></span>' + tail + '</button>';
+    esc([KIND[o.kind], fmtRange(o, true), countOf(o.members)].join(' · ')) + '</small></span>' + tail + '</button>';
 }
 const Merge = { c: null, picked: new Set() };
 function openMerge(c) {

@@ -253,4 +253,47 @@ final class GroupingTests: XCTestCase {
         XCTAssertEqual(a.collections.map(\.members), b.collections.map(\.members))
         XCTAssertEqual(a.order, b.order)
     }
+
+    // MARK: - Videos
+
+    func video(_ id: String, _ time: Double, print: String, me: Bool = false, aesthetic: Double = 0.2) -> GroupingPhoto {
+        GroupingPhoto(id: id, rel: "\(id).mov", time: time, timeKnown: true, width: 1920, height: 1080, size: 50_000_000,
+                      faceQualities: me ? [0.5] : [], meFace: me ? 0 : nil, aesthetic: aesthetic, sharpness: 5, gps: home, me: me,
+                      video: true, fingerprint: print)
+    }
+
+    func testAVideoIsNeverGroupedWithAPhotoOrAnotherTake() {
+        let ps = [photo("still", at(1), gps: home), video("clip", at(1, 12.001), print: "x"), video("take2", at(1, 12.002), print: "y")]
+        // As alike as can be, seconds apart: for photos that is a burst.
+        let r = group(ps, [("still", "clip", 0.01), ("clip", "take2", 0.01), ("still", "take2", 0.01)])
+        XCTAssertEqual(r.groups.count, 0)
+        XCTAssertEqual(Set(r.photos.values.map(\.auto)), [.keep])
+        XCTAssertEqual(r.collections.map(\.members.count), [3], "but it is part of the same month")
+    }
+
+    func testCopiesOfAVideoKeepTheOriginalAndOnlyThat() {
+        let ps = [video("clip 2", at(1), print: "x", me: true), video("clip", at(1), print: "x", me: true), video("clip copy", at(1), print: "x", me: true),
+                  video("other", at(1, 13), print: "z")]
+        let r = group(ps, knowsYou: true)
+        XCTAssertEqual(r.groups.map(\.members), [["clip", "clip 2", "clip copy"]])
+        XCTAssertEqual(r.groups.first?.kind, .duplicate)
+        XCTAssertEqual(r.groups.first?.close, false)
+        XCTAssertEqual(r.groups.first?.you, true)
+        // You are in all three, and a copy is still only a copy: no "second shot of you" is kept.
+        XCTAssertEqual(["clip", "clip 2", "clip copy"].map { r.photos[$0]!.auto }, [.fav, .remove, .remove])
+        XCTAssertEqual(r.photos["clip"]?.reason, "The original of these copies")
+    }
+
+    func testAVideoOnItsOwnIsNeverSuggestedForRemoval() {
+        // A blurry, low-scoring video without you, among good photos, in a library that knows you.
+        var ps = (0..<10).map { photo("p\($0)", at(1 + $0), gps: home, aesthetic: 0.8) }
+        ps.append(video("dull", at(3), print: "x", aesthetic: -0.9))
+        ps.append(video("mine", at(4), print: "y", me: true))
+        let r = group(ps, knowsYou: true)
+        XCTAssertEqual(r.photos["dull"]?.auto, .keep)
+        XCTAssertEqual(r.photos["dull"]?.tags, [], "one frame does not make a video blurry")
+        XCTAssertEqual(r.photos["mine"]?.reason, "You're in this video")
+        // And it does not drag the photos' quality line down: none of the photos falls under it.
+        XCTAssertEqual(Set((0..<10).map { r.photos["p\($0)"]!.auto }), [.keep])
+    }
 }

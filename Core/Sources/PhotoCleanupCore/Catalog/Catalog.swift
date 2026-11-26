@@ -61,7 +61,7 @@ public final class Catalog {
                     width: p.width, height: p.height, size: p.size, faceQualities: faces[p.id!] ?? [], meFace: p.meFace,
                     aesthetic: p.aesthetic, sharpness: p.sharpness, utility: p.utility ?? false,
                     gps: p.lat.flatMap { lat in p.lon.map { (lat, $0) } }, me: (p.meSim ?? -1) >= youThreshold,
-                    folder: Self.topFolder(of: p.originalRelPath))
+                    folder: Self.topFolder(of: p.originalRelPath), video: p.media == .video, fingerprint: p.fingerprint)
             }
             let neighbors = pairs.map { (a: String($0["a"] as Int64), b: String($0["b"] as Int64), distance: $0["distance"] as Double) }
             grouping = groupPhotos(input, neighbors: neighbors, edits: stored.grouping, knowsYou: knowsYou, timeZone: timeZone)
@@ -125,7 +125,7 @@ public final class Catalog {
                 guard let p = rows[id] else { continue }
                 let taken = (p.taken ?? 0) != 0
                 let q = faces[p.id!] ?? []
-                photos[id] = [
+                var d: [String: Any] = [
                     "rel": p.originalRelPath, "path": library.url(forRelPath: p.relPath).path,
                     "time": taken ? p.taken! : p.mtime, "timeKnown": taken, "w": p.width, "h": p.height, "size": p.size,
                     "faces": q.count, "faceQ": q.compactMap { $0 }.map { rounded($0, 3) },
@@ -134,7 +134,9 @@ public final class Catalog {
                     "gps": p.lat.flatMap { lat in p.lon.map { [rounded(lat, 5), rounded($0, 5)] as Any } } ?? NSNull(),
                     "auto": g.auto.rawValue, "reason": g.reason, "me": (p.meSim ?? -1) >= youThreshold,
                     "meSim": p.meSim as Any? ?? NSNull(),
-                ] as [String: Any]
+                ]
+                if p.media == .video { d["dur"] = rounded(p.duration ?? 0, 1) }  // seconds; only a video has it
+                photos[id] = d
             }
             let collections: [[String: Any]] = grouping.collections.map { c in
                 var d: [String: Any] = [

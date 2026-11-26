@@ -16,7 +16,9 @@ function go(hash) {
 
 /* ---------- library-wide views ---------- */
 const LIBRARY = [
-  { id: 'all', label: 'All photos', icon: 'photos', hint: 'Every photo in the folder, oldest first.', photos: () => S.order },
+  { id: 'all', label: 'All photos', icon: 'photos', hint: 'Every photo and video in the folder, oldest first.', photos: () => S.order },
+  { id: 'videos', label: 'Videos', icon: 'film', hint: 'Every video in the folder. Videos are kept unless you mark them; only exact copies are suggested for removal.',
+    photos: () => S.order.filter(isVideo), empty: 'No videos in this folder.' },
   { id: 'you', label: 'Photos of you', icon: 'person', hint: 'Photos your face was recognized in. These are kept unless a better shot of the same moment exists.',
     photos: () => S.order.filter((id) => S.photos[id].me), empty: 'No photos of you yet. Choose a clear photo of you, and every photo you are in shows up here.' },
   { id: 'groups', label: 'Cleanup groups', icon: 'stack', hint: 'Every set of near-identical shots, across all trips and events.',
@@ -121,7 +123,7 @@ function morph(fn) {
 
 /* ---------- toolbar ---------- */
 function renderBars() {
-  $('#bar-home').innerHTML = '<span class="title">' + esc((A.app && A.app.name) || 'Photo Cleanup') + '</span><span class="sp"></span>' +
+  $('#bar-home').innerHTML = '<span class="title">' + esc((A.app && A.app.name) || 'Photo Cleanup') + '</span><span class="sp"></span><span class="updslot"></span>' +
     '<button class="btn glass icon" data-act="settings" title="Settings" aria-label="Settings">' + ic('gear', 16) + '</button>' +
     '<button class="btn glass" data-act="add">' + ic('plus', 15) + 'Add folder</button>';
   $('#bar-folder').innerHTML =
@@ -129,7 +131,7 @@ function renderBars() {
       '<button data-seg="organize">Organize</button>' +
       '<button data-seg="review">Review<em id="seg-left"></em></button>' +
       '<button data-seg="finish">Finish<em id="seg-rm"></em></button></div>' +
-    '<span class="savest ok" id="savest" role="status"></span><span class="sp"></span>' +
+    '<span class="savest ok" id="savest" role="status"></span><span class="sp"></span><span class="updslot"></span>' +
     '<label class="search glass">' + ic('search', 15) + '<input id="q" type="text" placeholder="Search collections" spellcheck="false" autocomplete="off"></label>' +
     '<button class="btn glass" data-act="opinion" id="btn-opinion">' + ic('spark', 16, 'spark') + 'Second opinion</button>' +
     '<span id="scanslot"></span>' +
@@ -140,6 +142,24 @@ function renderBars() {
     if (U.route.name === 'organize') renderLibrary();
   });
   paintScan();
+  paintUpdate();
+}
+// The Update button, in both toolbars, when a newer version has been released.
+function paintUpdate() {
+  const u = A.update, found = u && u.available;
+  const html = found ? '<button class="btn update" data-act="update" title="You have version ' + esc(u.current) + '">' + ic('down', 15) + 'Update to ' + esc(found.version) + '</button>' : '';
+  $$('.updslot').forEach((el) => { if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } });
+}
+function openUpdate() {
+  const u = A.update || {}, found = u.available;
+  if (!found) return;
+  openSheet('update',
+    '<h2>Photo Cleanup ' + esc(found.version) + ' is available</h2>' +
+    '<p>You have ' + esc(u.current) + '. ' + (found.download ? 'The download is a disk image: open it and drag Photo Cleanup to Applications, replacing the one there.' : 'The release page has the download.') +
+    ' Your folders, choices and reviews stay as they are.</p>' +
+    '<p style="margin-top:10px;font-size:12.5px;color:var(--ink-3)">The app is not notarized by Apple, so macOS asks once before the new version opens: System Settings, Privacy &amp; Security, Open Anyway.</p>' +
+    '<div class="btns"><button class="btn quiet" data-act="sheet-close">Later</button><button class="btn quiet" data-act="update-notes">What is new</button>' +
+    '<button class="btn primary" data-act="update-get">' + ic('down', 15) + (found.download ? 'Download' : 'Open the release page') + '</button></div>');
 }
 function paintSeg() {
   if (!S.loaded || !$('#seg')) return;
@@ -158,7 +178,7 @@ function paintScan() {
   if (!slot) return;
   const s = A.scan;
   if (!s) {
-    slot.innerHTML = '<button class="btn glass" data-act="scan" title="Look for new, moved and deleted photos">' + ic('scan', 16) + 'Scan</button>';
+    slot.innerHTML = '<button class="btn glass" data-act="scan" title="Look for new, moved and deleted photos and videos">' + ic('scan', 16) + 'Scan</button>';
   } else {
     slot.innerHTML = '<span class="scanpill glass" role="status">' + (s.total ? ring(s.done / s.total, 18) : '<i class="spin"></i>') +
       '<span>' + esc(s.title) + (s.total ? ' ' + num(s.done) + ' of ' + num(s.total) : '') + '</span>' +
@@ -201,7 +221,7 @@ function renderSidebar() {
     '<div class="sb-folder"><h2>' + esc(f.name) + '</h2><p title="' + esc(S.root) + '">' + esc(f.path) + '</p></div>' +
     (f.connected ? '' : '<div class="sb-warn">' + ic('unplug', 15) + '<span>The folder is not connected. You can review; moving files waits until it is back.</span></div>') +
     '<nav class="sb-list" aria-label="Collections">' +
-      '<button class="row' + (r.name === 'organize' ? ' on' : '') + '" data-go="organize"><span class="th ico">' + ic('grid', 17) + '</span><span class="tx"><b>All collections</b><small>' + pl(S.total.photos, 'photo') + '</small></span><span class="n">' + S.collections.length + '</span></button>' +
+      '<button class="row' + (r.name === 'organize' ? ' on' : '') + '" data-go="organize"><span class="th ico">' + ic('grid', 17) + '</span><span class="tx"><b>All collections</b><small>' + tallyAll(S.total) + '</small></span><span class="n">' + S.collections.length + '</span></button>' +
       years.map((g) => '<h6>' + esc(g.y) + '</h6>' + g.a.map((c) => {
         const cover = coverPhotos(c, 1)[0];
         return '<button class="row' + (r.name === 'c' && r.id === c.id ? ' on' : '') + '" data-go="c/' + esc(c.id) + '" data-row="' + esc(c.id) + '"><span class="th">' + (cover ? img(thumbSrc(cover)) : '') + '</span><span class="tx"><b>' + esc(colTitle(c)) + '</b><small>' + esc(colMeta(c, true)) + '</small></span>' + rowCount(c) + '</button>';
@@ -219,7 +239,7 @@ function paintCounts() {
   if (!S.loaded) return;
   const t = S.total, foot = $('.sb-foot');
   if (foot) {
-    foot.querySelector('b').textContent = t.remove ? pl(t.remove, 'photo') + ' to remove' : 'Nothing to remove';
+    foot.querySelector('b').textContent = t.remove ? tallyRemove(t) + ' to remove' : 'Nothing to remove';
     foot.querySelector('small').textContent = (t.remove ? bytes(t.bytes).t + ' · ' : '') + (t.left ? t.left + ' of ' + pl(t.groups, 'group') + ' left' : t.groups ? 'all groups reviewed' : 'no groups');
   }
   $$('.sb-list [data-row]').forEach((row) => {
@@ -284,12 +304,13 @@ function renderOpinion() {
 function openHelp() {
   const k = (keys, what) => '<span class="k">' + keys.map((x) => '<span class="key">' + x + '</span>').join('') + '</span><span>' + what + '</span>';
   openSheet('help',
-    '<h2>Keyboard shortcuts</h2><p style="margin-bottom:16px">They act on the highlighted photo, or on every selected photo.</p><div class="keys">' +
-    k(['F'], 'Favorite') + k(['&larr;', '&rarr;'], 'Previous, next photo') +
-    k(['K'], 'Keep') + k(['&uarr;', '&darr;'], 'Previous, next group') +
-    k(['X'], 'Remove') + k(['Return'], 'Open the photo large') +
-    k(['U'], 'Back to the suggestion') + k(['S'], 'Select, to move it') +
+    '<h2>Keyboard shortcuts</h2><p style="margin-bottom:16px">They act on the highlighted photo or video, or on everything selected.</p><div class="keys">' +
+    k(['F'], 'Favorite') + k(['&larr;', '&rarr;'], 'Previous, next shot') +
+    k(['K'], 'Keep') + k(['[', ']'], 'Previous, next group') +
+    k(['X'], 'Remove') + k(['Return'], 'Open it large') +
+    k(['U'], 'Back to the suggestion') + k(['Space'], 'Play or pause a video') +
     k(['D'], 'Mark reviewed, go on') + k(['N'], 'Next group to review') +
-    k(['Esc'], 'Close, clear, go back') + k(['?'], 'This list') +
+    k(['S'], 'Select, to move it') + k(['Esc'], 'Close, clear, go back') +
+    k(['?'], 'This list') +
     '</div><div class="btns"><button class="btn primary" data-act="sheet-close">Done</button></div>');
 }

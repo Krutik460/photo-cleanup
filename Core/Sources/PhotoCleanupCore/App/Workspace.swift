@@ -10,6 +10,8 @@ public protocol WorkspaceUI: AnyObject {
     func openSettings()
     /// Opens Terminal, where the user types the commands the interface shows. The app runs none of them.
     func openTerminal()
+    /// Opens a web page in the browser (the download or the notes of a new version).
+    func open(_ url: URL)
     /// "drag" starts moving the window from the mouse press in progress, "zoom" zooms it.
     func window(_ action: String)
 }
@@ -64,6 +66,14 @@ public final class Workspace {
     public var claudePath: @Sendable () -> String? = { nil }
     public var claudeModel: @Sendable () -> String = { "haiku" }
     public var claudeParallel: @Sendable () -> Int = { 3 }
+    /// The version of the app, for the update check. Nil (the command line tool): no check.
+    public var appVersion: String?
+    /// Whether the app may ask GitHub for a newer version, what it remembers between launches, and
+    /// how it asks. Tests replace the last one, so they never go online.
+    public var updatesEnabled: @Sendable () -> Bool = { true }
+    public var loadUpdateMemory: @Sendable () -> UpdateMemory? = { nil }
+    public var saveUpdateMemory: @Sendable (UpdateMemory) -> Void = { _ in }
+    public var fetchRelease: @Sendable (URL) async throws -> Data = UpdateCheck.fetch
     /// How a removed library leaves: to the Trash, so it can be put back. Tests replace it.
     public var discard: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
 
@@ -81,6 +91,8 @@ public final class Workspace {
     private var dataVersion = 0
     private var notice: [String: Any]?
     private var noticeId = 0
+    private var updateTask: Task<Void, Never>?
+    private var updateFailed = false
 
     public init(librariesDir: URL, uiDir: URL, embedder: FaceEmbedder? = nil) {
         self.librariesDir = librariesDir
@@ -124,6 +136,13 @@ public final class Workspace {
                 "notice": notice as Any? ?? NSNull(),
             ]
             let pending = (try? session?.catalog.groupsNeedingSecondOpinion().count) ?? 0
+            if let appVersion {
+                let memory = loadUpdateMemory()
+                let found = UpdateCheck.available(memory, current: appVersion)
+                out["update"] = ["current": appVersion, "enabled": updatesEnabled(), "checking": updateTask != nil, "failed": updateFailed,
+                                 "checkedAt": memory?.checkedAt as Any? ?? NSNull(),
+                                 "available": found.map { ["version": $0.version, "download": $0.download != nil] as [String: Any] } as Any? ?? NSNull()] as [String: Any]
+            }
             out["opinion"] = ["running": opinion != nil, "done": opinion?.done ?? 0, "total": opinion?.total ?? 0, "failed": opinion?.failed ?? 0,
                               "groups": opinion?.groups ?? 0, "pending": pending, "log": opinionLog,
                               "model": claudeModel()] as [String: Any]
@@ -144,7 +163,7 @@ public final class Workspace {
             let opened = library.lastOpened?.timeIntervalSince1970
             list.append((opened ?? 0, library.name, [
                 "id": dir.lastPathComponent, "name": library.name, "path": (library.root.path as NSString).abbreviatingWithTildeInPath,
-                "photos": library.photoCount, "connected": library.isPhotoFolderAvailable, "lastOpened": opened as Any? ?? NSNull(),
+                "photos": library.count(of: .photo), "videos": library.count(of: .video), "connected": library.isPhotoFolderAvailable, "lastOpened": opened as Any? ?? NSNull(),
                 "groups": s.groups, "groupsReviewed": s.reviewedGroups, "toRemove": s.toRemove, "toRemoveBytes": s.toRemoveBytes,
                 "savedBytes": s.savedBytes, "waitingBytes": s.waitingBytes, "you": s.you, "covers": s.covers.map(String.init),
             ]))
@@ -207,6 +226,13 @@ public final class Workspace {
         case "terminal":
             guard let ui else { throw WorkspaceError.needsApp("Opening Terminal") }
             ui.openTerminal()
+        case "update-check":
+            checkForUpdate(force: true)
+        case "update-open":
+            guard let ui else { throw WorkspaceError.needsApp("Opening the download") }
+            guard let appVersion, let found = UpdateCheck.available(loadUpdateMemory(), current: appVersion) else { throw WorkspaceError.invalid("There is no newer version.") }
+            let link = body["what"] as? String == "notes" ? found.page : found.download ?? found.page
+            if let url = URL(string: link) { ui.open(url) }
         case "reveal":
             guard let ui else { throw WorkspaceError.needsApp("Showing a folder in Finder") }
             if let id = body["id"] as? String, let library = try? Library.open(at: librariesDir.appendingPathComponent(id)) { ui.reveal(library.root) }
@@ -283,6 +309,33 @@ public final class Workspace {
         startScan(photosOfYou: photosOfYou)
     }
 
+    // MARK: - Updates
+
+    /// Asks GitHub for the newest release when the last answer is a day old (or `force`: asked for
+    /// in Settings). The answer is remembered, so the Update button is there at the next launch too.
+    public func checkForUpdate(force: Bool = false, now: Date = Date()) {
+        locked {
+            guard appVersion != nil, updateTask == nil, force || (updatesEnabled() && UpdateCheck.isDue(loadUpdateMemory(), now: now.timeIntervalSince1970)) else { return }
+            let fetch = fetchRelease, save = saveUpdateMemory
+            updateTask = Task { [weak self] in
+                let latest = (try? await fetch(UpdateCheck.latestRelease)).flatMap(UpdateCheck.release(from:))
+                // An answer that could not be read is no answer: what was known stays, and the next launch asks again.
+                if let latest { save(UpdateMemory(checkedAt: now.timeIntervalSince1970, latest: latest)) }
+                self?.locked {
+                    self?.updateFailed = latest == nil
+                    self?.updateTask = nil
+                }
+                self?.changed()
+            }
+        }
+        changed()
+    }
+
+    /// Waits for a running check: for tests and the command line.
+    public func updateCheckFinished() async {
+        await locked { updateTask }?.value
+    }
+
     /// Forgets a photo folder: its library goes to the Trash. The photos are not touched.
     public func remove(id: String) throws {
         try locked {
@@ -291,6 +344,7 @@ public final class Workspace {
             let dir = librariesDir.appendingPathComponent(id)
             guard FileManager.default.fileExists(atPath: dir.appendingPathComponent("library.sqlite").path) else { throw WorkspaceError.invalid("Unknown folder.") }
             try discard(dir)
+            if let previews = Library.previewsRoot?.appendingPathComponent(id) { try? FileManager.default.removeItem(at: previews) }
             folders = nil
         }
         changed()
@@ -300,7 +354,7 @@ public final class Workspace {
     public func startScan(photosOfYou: [URL] = []) {
         let current: Session? = locked {
             guard let s = session, scan == nil else { return nil }
-            scan = ["title": "Looking for photos", "done": 0, "total": 0, "failed": 0]
+            scan = ["title": "Looking for photos and videos", "done": 0, "total": 0, "failed": 0]
             return s
         }
         guard let s = current else { return }
@@ -312,7 +366,7 @@ public final class Workspace {
                 let summary = try await Analyzer(library: s.library, embedder: embedder).run { [weak self] p in
                     guard let self else { return }
                     let title: String? = switch p.phase {
-                    case .listing: "Looking for photos"
+                    case .listing: "Looking for photos and videos"
                     case .analyzing: "Analyzing photos"
                     case .neighbors: "Comparing photos"
                     case .done: nil
@@ -345,7 +399,7 @@ public final class Workspace {
                 self?.setScan(title: "Grouping")
                 try s.catalog.regroup()
                 self?.locked {
-                    self?.lastScan = ["analyzed": summary.analyzed, "relinked": summary.relinked, "missing": summary.missing,
+                    self?.lastScan = ["analyzed": summary.analyzed, "videos": summary.analyzedVideos, "relinked": summary.relinked, "missing": summary.missing,
                                       "failed": summary.failed, "cancelled": summary.cancelled]
                 }
             } catch {

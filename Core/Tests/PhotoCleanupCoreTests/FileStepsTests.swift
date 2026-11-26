@@ -298,7 +298,8 @@ final class FileStepsTests: XCTestCase {
         _ = try catalog.cleanUp()
         _ = try catalog.undo(.cleanup)
         let ops = try library.store.db.read { try Row.fetchAll($0, sql: "SELECT op, COUNT(*) AS n, MIN(done) AS done FROM file_move GROUP BY op ORDER BY op") }
-        XCTAssertEqual(ops.map { "\($0["op"] as String) \($0["n"] as Int) \($0["done"] as Int)" }, ["file 7", "remove 2", "unremove 2"].map { $0 + " 1" })
+        // Six photos and a Live Photo video filed; two photos removed, one of them with that video.
+        XCTAssertEqual(ops.map { "\($0["op"] as String) \($0["n"] as Int) \($0["done"] as Int)" }, ["file 7", "remove 3", "unremove 3"].map { $0 + " 1" })
     }
 
     // MARK: - You moved things yourself

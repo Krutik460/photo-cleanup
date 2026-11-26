@@ -18,6 +18,8 @@ final class AppRouterTests: XCTestCase {
         func reveal(_ url: URL) { revealed.append(url) }
         func openSettings() {}
         func openTerminal() {}
+        var opened: [URL] = []
+        func open(_ url: URL) { opened.append(url) }
         func window(_ action: String) { windowActions.append(action) }
     }
 

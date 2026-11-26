@@ -8,7 +8,8 @@ let neighborMaxCount = 40
 /// For every photo, its closest photos by feature-print distance (Euclidean on unit vectors, so
 /// d^2 = 2 - 2*dot): at most `neighborMaxCount` each, within `neighborMaxDistance`. One matrix
 /// multiply per block keeps this fast for tens of thousands of photos. Features live in the
-/// database, so this needs no file access and covers photos wherever they are now.
+/// database, so this needs no file access and covers photos wherever they are now. Videos are
+/// left out: a video is only ever grouped with exact copies of itself.
 func nearestNeighbors(ids: [Int64], features: [[Float]]) -> [(a: Int64, b: Int64, distance: Double)] {
     let n = ids.count
     guard n > 1, let dim = features.first?.count, dim > 0 else { return [] }
@@ -45,7 +46,7 @@ func nearestNeighbors(ids: [Int64], features: [[Float]]) -> [(a: Int64, b: Int64
 
 func rebuildNeighbors(in store: Store) throws {
     let rows = try store.db.read { db in
-        try Row.fetchAll(db, sql: "SELECT id, feature FROM photo WHERE missing = 0 AND feature IS NOT NULL ORDER BY id")
+        try Row.fetchAll(db, sql: "SELECT id, feature FROM photo WHERE missing = 0 AND feature IS NOT NULL AND media = 'photo' ORDER BY id")
     }
     var ids: [Int64] = []
     var features: [[Float]] = []
