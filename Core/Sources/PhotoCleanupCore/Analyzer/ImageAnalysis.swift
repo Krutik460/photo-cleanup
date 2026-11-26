@@ -1,4 +1,5 @@
-// On-device photo analysis with Apple's Vision framework (free, local). Per photo:
+// On-device analysis with Apple's Vision framework (free, local). Per photo, and per poster frame of
+// a video (VideoAnalysis.swift):
 //   - an image feature print (embedding) for similarity grouping
 //   - face count, per-face capture quality (sharpness, eyes, expression) and an aligned face crop
 //   - an overall aesthetic score and a "utility" flag (screenshots, receipts, documents)
@@ -48,6 +49,7 @@ public struct PhotoAnalysis: @unchecked Sendable {
     public var gps: (lat: Double, lon: Double)?
     public var error: String?
     public var thumbnail: CGImage?
+    public var duration: Double?  // seconds, videos only
 
     /// False when the file could not be opened or decoded at all: there is nothing to group or show.
     public var decoded: Bool { thumbnail != nil }
@@ -181,12 +183,13 @@ func iou(_ a: CGRect, _ b: CGRect) -> Double {
 }
 
 /// Detects face landmarks and warps each face onto the ArcFace template from a high-resolution
-/// decode. Returns the aligned crop per index of the capture-quality face it overlaps most.
-func alignedCrops(src: CGImageSource, work: CGImage, faces: [FaceAnalysis]) -> [Int: CGImage] {
+/// decode (`hiRes`, asked for only when there are faces). Returns the aligned crop per index of the
+/// capture-quality face it overlaps most.
+func alignedCrops(hiRes: () -> CGImage?, work: CGImage, faces: [FaceAnalysis]) -> [Int: CGImage] {
     let req = VNDetectFaceLandmarksRequest()
     let handler = VNImageRequestHandler(cgImage: work, options: [:])
     guard (try? handler.perform([req])) != nil, let found = req.results, !found.isEmpty,
-          let hi = thumbnail(src, maxPixels: faceDecodePixels) else { return [:] }
+          let hi = hiRes() else { return [:] }
     let W = Double(hi.width), H = Double(hi.height)
     let template = arcfaceTemplate.map { CGPoint(x: $0.x, y: Double(faceCropSize) - $0.y) }  // to bottom-left origin
     var out: [Int: CGImage] = [:]
@@ -211,32 +214,53 @@ func alignedCrops(src: CGImageSource, work: CGImage, faces: [FaceAnalysis]) -> [
     return out
 }
 
-/// Analyzes one image file. Never throws: what went wrong is reported in `error`, and a file that
-/// cannot be decoded at all comes back with `decoded == false`.
-func analyzeImage(at url: URL, embedder: FaceEmbedder?) async -> PhotoAnalysis {
+/// What a file says about itself, before its picture is looked at.
+struct MediaFacts {
+    var width = 0
+    var height = 0
+    var taken: Double?
+    var gps: (lat: Double, lon: Double)?
+    var duration: Double?
+}
+
+/// Size and modification time of a file (of what a symlink points to).
+func fileFacts(of url: URL) -> PhotoAnalysis {
     var out = PhotoAnalysis()
     let attrs = (try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)) ?? [:]
     out.size = (attrs[.size] as? NSNumber)?.intValue ?? 0
     out.mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+    return out
+}
 
+/// Analyzes one image file. Never throws: what went wrong is reported in `error`, and a file that
+/// cannot be decoded at all comes back with `decoded == false`.
+func analyzeImage(at url: URL, embedder: FaceEmbedder?) async -> PhotoAnalysis {
+    var out = fileFacts(of: url)
     guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else {
         out.error = "cannot open"
         return out
     }
     let props = (CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]) ?? [:]
-    var width = (props[kCGImagePropertyPixelWidth] as? Int) ?? 0
-    var height = (props[kCGImagePropertyPixelHeight] as? Int) ?? 0
-    if let o = props[kCGImagePropertyOrientation] as? Int, o >= 5 { swap(&width, &height) }
+    var facts = MediaFacts(width: (props[kCGImagePropertyPixelWidth] as? Int) ?? 0, height: (props[kCGImagePropertyPixelHeight] as? Int) ?? 0,
+                           taken: captureDate(props), gps: gpsLocation(props))
+    if let o = props[kCGImagePropertyOrientation] as? Int, o >= 5 { swap(&facts.width, &facts.height) }
+    return await analyzePicture(out, facts: facts, embedder: embedder) { thumbnail(src, maxPixels: $0) }
+}
 
-    guard let work = thumbnail(src, maxPixels: analysisMaxPixels), let thumb = thumbnail(src, maxPixels: thumbMaxPixels) else {
+/// The Vision steps, the same for a photo and for the poster frame of a video. `picture(n)` gives
+/// the picture at most `n` pixels on its long side.
+func analyzePicture(_ start: PhotoAnalysis, facts: MediaFacts, embedder: FaceEmbedder?, picture: (Int) -> CGImage?) async -> PhotoAnalysis {
+    var out = start
+    guard let work = picture(analysisMaxPixels), let thumb = picture(thumbMaxPixels) else {
         out.error = "cannot decode"
         return out
     }
-    out.width = width
-    out.height = height
+    out.width = facts.width
+    out.height = facts.height
     out.thumbnail = thumb
-    out.taken = captureDate(props)
-    out.gps = gpsLocation(props)
+    out.taken = facts.taken
+    out.gps = facts.gps
+    out.duration = facts.duration
 
     let handler = ImageRequestHandler(work)
     var errors: [String] = []
@@ -251,7 +275,7 @@ func analyzeImage(at url: URL, embedder: FaceEmbedder?) async -> PhotoAnalysis {
         }
     } catch { errors.append("faces: \(error.localizedDescription)") }
     if !out.faces.isEmpty, let embedder {
-        for (i, crop) in alignedCrops(src: src, work: work, faces: out.faces) {
+        for (i, crop) in alignedCrops(hiRes: { picture(faceDecodePixels) }, work: work, faces: out.faces) {
             do {
                 out.faces[i].embedding = try embedder.embed(crop)
             } catch { errors.append("face embedding: \(error.localizedDescription)") }
@@ -264,7 +288,7 @@ func analyzeImage(at url: URL, embedder: FaceEmbedder?) async -> PhotoAnalysis {
         out.utility = a.isUtility
     } catch { errors.append("aesthetics: \(error.localizedDescription)") }
 
-    out.sharpness = sharpness(thumbnail(src, maxPixels: 512) ?? thumb)
+    out.sharpness = sharpness(picture(512) ?? thumb)
     out.error = errors.isEmpty ? nil : errors.joined(separator: "; ")
     return out
 }

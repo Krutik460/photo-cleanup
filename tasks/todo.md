@@ -1014,3 +1014,152 @@ Decisions made on the way:
 - Release 0.2.0: the public DMG has face recognition (40 MB).
 - Demo video: made with the brag skill (`brag-output/`, not committed), with drawn stand-in photos
   only. The video and poster that are published live in `docs/`.
+
+# Videos, group-by-group review, and the space the app takes - plan (asked 2026-11-25)
+
+Branch `videos-and-group-review`, cut from `origin/main`. Three asks:
+1. support videos,
+2. review one group of similar shots at a time (mark reviewed, on to the next) in place of the
+   continuous page,
+3. why does the app take so much space.
+
+## What is true today
+
+- A scan lists image files only (`imageExtensions`). A `.mov` with the same name as a photo in the
+  same folder is that photo's Live Photo half and moves with it; every other video is invisible to
+  the app: not shown, not in a trip, not filed, not cleaned up.
+- Review is one long page per collection: every group as a band, then days of single photos. `D`
+  marks a group reviewed and scrolls to the next.
+- Space, measured 2026-11-25 with one folder of 1,161 photos (2.2 GB):
+  - the app itself: 51 MB (37 MB face model, 13 MB program);
+  - its data in Application Support: 158 MB (previews 79, thumbnails 71, database 7);
+  - `~/Library/Caches/local.photocleanup.app`: 609 MB. Core ML keeps a compiled copy of the face
+    model per build of the model file. There are six: three of the old ArcFace model (166 MB each,
+    not shipped since 0.2.0) and three of SFace (37 MB each). One 37 MB copy is needed; 570 MB is
+    left over from yesterday's development builds;
+  - development leftovers: `Core/.build` 921 MB, `brag-output/work` 546 MB, `models/` 406 MB, the
+    same model caches for the command line tool and the tests (203 MB each), and the folder of the
+    earlier scripts (301 MB) with their output (272 MB).
+
+## A. Videos
+
+A video is an item like a photo: one row, same identity rules, same file steps.
+
+- Store (migration v6): `photo.media` (`photo` | `video`, default `photo`) and `photo.duration`
+  (seconds). The table keeps its name; a rename would touch every query and change no behavior.
+- Scan: also lists `mov`, `mp4`, `m4v`, `3gp` (what AVFoundation opens; others are decided when the
+  real folder is plugged in). A `.mov` named like a photo in the same folder stays that photo's
+  Live Photo half and is not an item (the rule `FileSteps` already uses, moved to one shared place).
+- Analysis of a video (AVFoundation, on device): duration, size with rotation applied, capture time
+  (QuickTime creation date with its own offset, else the file's creation time in the Mac's zone),
+  GPS (`com.apple.quicktime.location.ISO6709`), and a poster frame taken a moment in, not the first
+  (often black) frame. The poster runs through the same Vision steps as a photo (thumbnail, feature
+  print, faces and "you", aesthetics, sharpness): `analyzeImage` is split so both feed one shared
+  frame analysis.
+- Collections: videos join trips, events and months by time and place exactly like photos.
+- Groups and suggestions (see decision V below; this is the recommended default):
+  - a video never groups with a photo, and is left out of the photo quality percentile;
+  - exact copies (same size and fingerprint) form a duplicate group; the original name is kept and
+    the copies are suggested for removal, with the reason;
+  - no other video is ever suggested for removal. You can still mark one remove yourself.
+- Serving: `GET /video/<id>` answers byte ranges (206, `Content-Range`) from the file with a file
+  handle, never the whole file in memory; `SchemeHandler` and the development server pass the
+  `Range` header and stream. `/mid` and `/full` of a video give a sharp poster.
+  Risk, checked first: video playback through the app's custom URL scheme in WKWebView. If it does
+  not hold, the fallback is a native player view laid over the stage.
+- Interface: a play mark and the duration on a video's tile; the viewer plays it with sound and
+  the system controls (Space plays and pauses there, Return closes); counts say what they count
+  ("25 photos and 3 videos"); a codec the web view cannot play shows the poster with Open in
+  QuickTime Player.
+- File steps: organize, clean up and both undos work on videos through the same journal. To check,
+  per the lesson on file paths: the companion search must not take a video item as its own
+  companion; relinking a video moved in Finder (fingerprint); previews; the second opinion (video
+  groups are not sent); the summary's bytes.
+- Tests: generated one-second clips (AVAssetWriter): scan and re-scan, Live Photo half stays a
+  companion, a copy is grouped and the original kept, a single video is never suggested, a video is
+  filed, cleaned up and put back, byte ranges.
+
+## B. Review one group at a time
+
+"Review" opens a group on its own screen; the continuous page stays one click away as "All".
+
+- One group fills the window, nothing to scroll for the usual group: its shots laid out to fit
+  (see decision R), the favorite first, removes with the red frame at full brightness (unchanged).
+- Above: collection name, "Group 3 of 39", and one tick per group (reviewed ones filled); a tick
+  jumps to its group. The note (why the favorite, or Claude's comparison) and "keeping 1 of 3,
+  frees 253 KB" sit with it.
+- Keys: arrows move between the shots of this group, `F K X U` as today, `D` marks it reviewed and
+  shows the next group that is not, `[` and `]` step to the previous and next group without
+  marking, Return opens the shot large (the viewer then steps through this group only), `Esc`
+  goes back to All.
+- After the last group of a collection: its photos with no look-alike as the last step, the ones
+  suggested for removal first, then the end panel and the next collection, as today.
+- A switch in the head, "One at a time | All", for collections and for the library views that list
+  groups (Cleanup groups, Close calls). One at a time is the default and is remembered.
+- Built in `ui/review.js` on the existing view model (one item drawn instead of all); no change to
+  the data model or the API.
+- Per the lesson "a reskin is not a redesign": the group screen is built first, on a scratch
+  folder, and pictured for the owner before the rest of the interface work.
+
+## C. Space
+
+- Now: delete the stale model caches (decision S). The app rebuilds the one copy it needs.
+- In the app:
+  - find out what makes Core ML keep a copy per build (reproduce with two builds), then keep one:
+    either the app drops the copies it did not use at launch, or the model is loaded in a way that
+    needs no compiled copy. Chosen after the reproduction, root cause first;
+  - previews (they grow with every photo opened and are never trimmed) move from Application
+    Support to `~/Library/Caches`, where macOS may reclaim them; thumbnails stay (they stand in
+    while the drive is away).
+
+## D. Update check (added by the owner while the build was running)
+
+- At launch, and at most once a day, the app asks GitHub for the latest release of
+  `Krutik460/photo-cleanup` and compares its tag with the app's own version. Nothing about the
+  Mac or the photos is sent; it is one anonymous GET.
+- A newer version shows an Update button in the toolbar (home and folder) with the version; it
+  opens the release's DMG download. The app is not notarized, so it does not replace itself.
+- Settings gets a switch "Check for updates" (on by default) and a "Check now" line with the
+  result. The README's privacy section says what the check sends.
+- Core: `UpdateCheck` (version comparison, parsing the release, the once-a-day rule) with tests on
+  canned replies; the network call is injected so tests never go online.
+
+## Testing without touching the installed app (owner's rule, 2026-11-25)
+
+The owner uses the installed app for real. Every run for testing is a separate copy: its own bundle
+identifier (`local.photocleanup.app.dev`), its own libraries folder (PHOTOCLEANUP_LIBRARIES in the
+scratchpad), never `/Applications/Photo Cleanup.app`, never Application Support/Photo Cleanup, never
+the real photo folder. When the work is done the copy and everything it left are deleted: the
+build, its caches, WebKit data, preferences, saved state, scratch libraries.
+
+## Decisions (answered 2026-11-25)
+
+- V. Videos: exact copies only. Videos are organized, played and filed; only exact copies are
+  grouped and suggested for removal.
+- R. Group screen: all shots side by side, favorite first and larger.
+- S. Deleted the three face model caches (app 609 MB, command line tool 203 MB, test runner
+  203 MB): 1.0 GB freed. The launch video work files stay.
+- Go ahead: yes.
+
+## Steps
+
+- [x] S1. Delete the leftovers the owner picked: 1.0 GB freed, the three cache folders are empty
+- [x] V1. Spike: a video plays in a WKWebView through `photocleanup://` with byte ranges (H.264
+      mp4 and HEVC mov, autoplay to the end, no error). WebKit asks for about 300 small bounded
+      ranges (largest 98 KB), never an open-ended one, so answering exactly the range asked is enough
+- [ ] V2. Store v6, scan lists videos, Live Photo rule in one place, video analysis (poster, time,
+      place, duration), shared frame analysis; tests
+- [ ] V3. Grouping: videos apart from photos, copies grouped, never suggested alone; tests
+- [ ] V4. Router `/video`, ranges in `SchemeHandler` and the development server; posters for
+      `/mid` and `/full`; tests
+- [ ] V5. Interface: tiles, viewer playback, counts and wording
+- [ ] V6. File steps with videos (organize, clean up, undo, relink); tests
+- [ ] R1. The group screen on a scratch folder, pictured for the owner
+- [ ] R2. Ticks, keys, the singles step, the end panel, the switch, library views
+- [ ] C1. Model cache: reproduce, fix, check after two builds
+- [ ] C2. Previews to Caches
+- [ ] U1. Update check: core with tests, toolbar button, Settings switch, README
+- [ ] E1. End to end on a scratch folder with photos and videos (never the real folder): scan,
+      review group by group, play, organize, clean up, undo both; light and dark at 1200 and 1728
+- [ ] E2. README, version 0.3.0, PR with `docs/pr/<n>-videos-and-group-review.md`
+- [ ] E3. Remove the test copy and everything it left; list what was removed

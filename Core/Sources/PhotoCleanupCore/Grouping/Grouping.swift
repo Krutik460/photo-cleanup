@@ -32,7 +32,8 @@ private struct Pair: Hashable {
     init(_ x: Int, _ y: Int) { a = min(x, y); b = max(x, y) }
 }
 
-/// Groups similar photos, picks a favorite per group and suggests what to keep or remove.
+/// Groups similar photos, picks a favorite per group and suggests what to keep or remove. Videos
+/// take part in collections like photos, but only exact copies of a video form a group.
 ///
 /// - Parameters:
 ///   - neighbors: close pairs of photos with their feature-print distance, each pair once.
@@ -76,7 +77,7 @@ func groupPhotos(_ photos: [GroupingPhoto], neighbors: [(a: String, b: String, d
     var dist: [Pair: Double] = [:]
     var edges: [(d: Double, a: String, b: String, x: Int, y: Int)] = []
     for n in neighbors {
-        guard let i = index[n.a], let j = index[n.b], i != j else { continue }
+        guard let i = index[n.a], let j = index[n.b], i != j, !shots[i].p.video, !shots[j].p.video else { continue }
         dist[Pair(i, j)] = n.distance
         let (x, y) = scalarLess(n.a, n.b) ? (i, j) : (j, i)
         if mayLink(shots[x].id, shots[y].id), linked(x, y, n.distance) { edges.append((n.distance, shots[x].id, shots[y].id, x, y)) }
@@ -111,6 +112,15 @@ func groupPhotos(_ photos: [GroupingPhoto], neighbors: [(a: String, b: String, d
         var you: Bool
         var time: Double
     }
+    // Ties (exact copies score the same) go to the original file name, then the shorter path, so
+    // regrouping always picks the same favorite.
+    func originalFirst(_ l: Int, _ r: Int) -> Bool {
+        let cl = isCopyName(shots[l].p.rel), cr = isCopyName(shots[r].p.rel)
+        if cl != cr { return !cl }
+        let nl = shots[l].p.rel.unicodeScalars.count, nr = shots[r].p.rel.unicodeScalars.count
+        if nl != nr { return nl < nr }
+        return scalarLess(shots[l].p.rel, shots[r].p.rel)
+    }
     var building: [Building] = []
     for cluster in members.values where cluster.count >= 2 {
         let maxPx = max(cluster.map { shots[$0].p.width * shots[$0].p.height }.max()!, 1)
@@ -121,16 +131,9 @@ func groupPhotos(_ photos: [GroupingPhoto], neighbors: [(a: String, b: String, d
             return shots[m].score + 0.05 * (Double(p.width * p.height) / Double(maxPx)) + 0.01 * (Double(p.size) / Double(maxSize))
                 + (p.me ? Tuning.meRankBonus : 0)
         }
-        // Ties (exact copies score the same) go to the original file name, then the shorter path, so
-        // regrouping always picks the same favorite.
         let ordered = cluster.sorted { l, r in
             let rl = rank(l), rr = rank(r)
-            if rl != rr { return rl > rr }
-            let cl = isCopyName(shots[l].p.rel), cr = isCopyName(shots[r].p.rel)
-            if cl != cr { return !cl }
-            let nl = shots[l].p.rel.unicodeScalars.count, nr = shots[r].p.rel.unicodeScalars.count
-            if nl != nr { return nl < nr }
-            return scalarLess(shots[l].p.rel, shots[r].p.rel)
+            return rl != rr ? rl > rr : originalFirst(l, r)
         }
 
         var widest = 0.0
@@ -162,6 +165,19 @@ func groupPhotos(_ photos: [GroupingPhoto], neighbors: [(a: String, b: String, d
         building.append(Building(members: ordered, kind: kind, close: close, you: ordered.contains { shots[$0].p.me },
                                  time: ordered.map { shots[$0].p.time }.min()!))
     }
+    // Videos: the same file more than once is a group, the original kept. Two takes of a scene are
+    // two videos, and stay.
+    var copies: [String: [Int]] = [:]
+    for (i, s) in shots.enumerated() where s.p.video {
+        if let print = s.p.fingerprint { copies[print, default: []].append(i) }
+    }
+    for cluster in copies.values where cluster.count >= 2 {
+        let ordered = cluster.sorted(by: originalFirst)
+        auto[ordered[0]] = (.fav, "The original of these copies")
+        for m in ordered.dropFirst() { auto[m] = (.remove, "An exact copy of a video you are keeping") }
+        building.append(Building(members: ordered, kind: .duplicate, close: false, you: ordered.contains { shots[$0].p.me },
+                                 time: ordered.map { shots[$0].p.time }.min()!))
+    }
     building.sort { l, r in
         l.time != r.time ? l.time < r.time : scalarLess(shots[l.members[0]].p.rel, shots[r.members[0]].p.rel)
     }
@@ -188,17 +204,20 @@ func groupPhotos(_ photos: [GroupingPhoto], neighbors: [(a: String, b: String, d
     }
 
     // Singles: always keep yours; without you, suggest removing blurry, screenshot/document and
-    // (when we know which photos are yours) bottom-quality photos.
-    let others = shots.filter { !$0.p.me }.map(\.score).sorted()
+    // (when we know which photos are yours) bottom-quality photos. A video on its own is always
+    // kept: one frame says too little about it.
+    let others = shots.filter { !$0.p.me && !$0.p.video }.map(\.score).sorted()
     let lowCut = knowsYou && !others.isEmpty ? others[Int(Double(others.count) * Tuning.lowQualityPercentile)] : -1
     var out: [String: GroupedPhoto] = [:]
     for (i, s) in shots.enumerated() {
         var tags: [String] = []
-        if s.p.utility { tags.append("utility") }
-        if s.p.sharpness < Tuning.blurrySharpness { tags.append("blurry") }
+        if s.p.utility, !s.p.video { tags.append("utility") }
+        if s.p.sharpness < Tuning.blurrySharpness, !s.p.video { tags.append("blurry") }
         let group = groupOf[i]
         if group == nil {
-            if s.p.me {
+            if s.p.video {
+                auto[i] = (.keep, s.p.me ? "You're in this video" : "")
+            } else if s.p.me {
                 auto[i] = (.keep, "You're in this photo")
             } else if tags.contains("blurry") {
                 auto[i] = (.remove, "Blurry")

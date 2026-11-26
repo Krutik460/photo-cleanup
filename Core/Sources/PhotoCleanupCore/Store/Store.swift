@@ -175,6 +175,14 @@ public final class Store {
                 t.column("done", .boolean).notNull().defaults(to: false)
             }
         }
+        // Videos are items like photos: one row, the same identity and file steps. `duration` is
+        // set for videos only. The table keeps its name; it holds everything the folder shows.
+        m.registerMigration("v6 videos") { db in
+            try db.alter(table: "photo") { t in
+                t.add(column: "media", .text).notNull().defaults(to: "photo").check(sql: "media IN ('photo', 'video')")
+                t.add(column: "duration", .double)
+            }
+        }
         return m
     }
 }

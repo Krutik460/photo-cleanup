@@ -1,9 +1,6 @@
 import Foundation
 import GRDB
 
-/// The video half of a Live Photo moves with its photo.
-let companionExtensions: Set<String> = ["mov"]
-
 public struct OrganizeResult: Sendable, Equatable {
     public var filed = 0  // photos moved into their collection's folder
     public var back = 0  // photos put back because their collection's folder is switched off
@@ -50,6 +47,8 @@ struct FileMove {
                 try db.execute(sql: "DELETE FROM companion WHERE id = ?", arguments: [companion])
             } else {
                 try db.execute(sql: "UPDATE companion SET rel_path = ? WHERE id = ?", arguments: [to, companion])
+                // Back where it started (out of _to_remove): a video that is in its place says nothing.
+                try db.execute(sql: "DELETE FROM companion WHERE id = ? AND rel_path = original_rel_path", arguments: [companion])
             }
             return
         }
@@ -157,32 +156,47 @@ extension Catalog {
         }
     }
 
-    /// Moves a photo into a collection folder, with its Live Photo video if it has one.
-    func file(_ p: PhotoRecord, into folder: String) throws {
+    /// The Live Photo video(s) lying next to a photo right now: a .mov named like it that the library
+    /// does not know as a video of its own.
+    func livePhotoVideos(of p: PhotoRecord) throws -> [String] {
+        guard p.media == .photo else { return [] }
         let name = (p.relPath as NSString).lastPathComponent, dir = (p.relPath as NSString).deletingLastPathComponent
-        let target = free((folder as NSString).appendingPathComponent(name))
-        let stem = (name as NSString).deletingPathExtension, targetStem = ((target as NSString).lastPathComponent as NSString).deletingPathExtension
-        let known = try companions(of: p.id!)
-        var videos: [(rel: String, to: String)] = []
-        for other in (try? fm.contentsOfDirectory(atPath: library.url(forRelPath: dir).path)) ?? [] {
-            let ext = (other as NSString).pathExtension
-            guard (other as NSString).deletingPathExtension == stem, companionExtensions.contains(ext.lowercased()), !other.hasPrefix("._") else { continue }
-            videos.append(((dir as NSString).appendingPathComponent(other), free((folder as NSString).appendingPathComponent("\(targetStem).\(ext)"))))
-        }
-        try perform(FileMove(photo: p.id!, op: .file, from: p.relPath, to: target))
-        for v in videos {
-            let id = try known.first { $0.rel == v.rel }?.id ?? library.store.db.write { db -> Int64 in
-                try db.execute(sql: "INSERT INTO companion (photo_id, rel_path, original_rel_path) VALUES (?, ?, ?)", arguments: [p.id!, v.rel, v.rel])
+        let stem = (name as NSString).deletingPathExtension
+        let near = ((try? fm.contentsOfDirectory(atPath: library.url(forRelPath: dir).path)) ?? [])
+            .filter { isLivePhotoVideo($0, ofPhotoWithStem: stem) }.sorted().map { (dir as NSString).appendingPathComponent($0) }
+        guard !near.isEmpty else { return [] }
+        let items = Set(try library.store.db.read { db in
+            try String.fetchAll(db, sql: "SELECT rel_path FROM photo WHERE media = 'video'")
+        })
+        return near.filter { !items.contains($0) }
+    }
+
+    /// Moves a photo or video to `target`. The video half of a Live Photo goes with its photo and
+    /// stays named like it.
+    func move(_ p: PhotoRecord, _ op: FileMove.Op, to target: String) throws {
+        let videos = try livePhotoVideos(of: p), known = try companions(of: p.id!)
+        let folder = (target as NSString).deletingLastPathComponent
+        let stem = ((target as NSString).lastPathComponent as NSString).deletingPathExtension
+        try perform(FileMove(photo: p.id!, op: op, from: p.relPath, to: target))
+        for rel in videos {
+            let to = free((folder as NSString).appendingPathComponent("\(stem).\((rel as NSString).pathExtension)"))
+            let id = try known.first { $0.rel == rel }?.id ?? library.store.db.write { db -> Int64 in
+                try db.execute(sql: "INSERT INTO companion (photo_id, rel_path, original_rel_path) VALUES (?, ?, ?)", arguments: [p.id!, rel, rel])
                 return db.lastInsertedRowID
             }
             do {
-                try perform(FileMove(photo: p.id!, companion: id, op: .file, from: v.rel, to: v.to))
+                try perform(FileMove(photo: p.id!, companion: id, op: op, from: rel, to: to))
             } catch {
                 // The video stays where it is; a row that never moved says nothing.
                 try? library.store.db.write { try $0.execute(sql: "DELETE FROM companion WHERE id = ? AND rel_path = original_rel_path", arguments: [id]) }
                 throw error
             }
         }
+    }
+
+    /// Moves a photo or video into a collection folder.
+    func file(_ p: PhotoRecord, into folder: String) throws {
+        try move(p, .file, to: free((folder as NSString).appendingPathComponent((p.relPath as NSString).lastPathComponent)))
     }
 
     /// Puts a filed photo back where it originally was, Live Photo video too.
@@ -282,7 +296,8 @@ extension Catalog {
         }
     }
 
-    /// Photos marked remove go to _to_remove, from wherever they are now (a collection folder too).
+    /// Photos and videos marked remove go to _to_remove, from wherever they are now (a collection
+    /// folder too). The video half of a Live Photo goes with its photo.
     /// With `duplicatesOnly`, just the extra copies in groups of exact duplicates go (nothing to judge
     /// there), and those groups count as reviewed afterwards, which takes them off the review list.
     public func cleanUp(duplicatesOnly: Bool = false) throws -> CleanupResult {
@@ -295,8 +310,7 @@ extension Catalog {
             for id in grouping.order where states[id] == .remove {
                 guard let p = photos[id], p.location != .toRemove, !duplicatesOnly || copies.contains(id), exists(p.relPath) else { continue }
                 do {
-                    try perform(FileMove(photo: p.id!, op: .remove, from: p.relPath,
-                                         to: free((toRemoveFolderName as NSString).appendingPathComponent(p.originalRelPath))))
+                    try move(p, .remove, to: free((toRemoveFolderName as NSString).appendingPathComponent(p.originalRelPath)))
                     result.moved += 1
                 } catch {
                     result.errors.append("\(p.originalRelPath): \(error.localizedDescription)")
@@ -329,7 +343,7 @@ extension Catalog {
                         guard !exists(dest) else {
                             throw CocoaError(.fileWriteFileExists, userInfo: [NSLocalizedDescriptionKey: "a file already exists where it was"])
                         }
-                        try perform(FileMove(photo: p.id!, op: .unremove, from: p.relPath, to: dest))
+                        try move(p, .unremove, to: dest)
                         result.restored += 1
                     case (.organize, .filed):
                         let dir = (p.relPath as NSString).deletingLastPathComponent

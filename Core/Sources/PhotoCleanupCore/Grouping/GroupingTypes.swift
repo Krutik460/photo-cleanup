@@ -35,7 +35,7 @@ public enum PhotoState: String, Codable, Sendable {
     case fav, keep, remove
 }
 
-/// What grouping needs to know about a photo.
+/// What grouping needs to know about a photo, or about a video (through its poster frame).
 public struct GroupingPhoto: Sendable {
     public var id: String
     public var rel: String
@@ -54,10 +54,17 @@ public struct GroupingPhoto: Sendable {
     /// The folder directly inside the photo folder that holds this photo (at any depth), nil for a
     /// photo that lies loose in the photo folder. Such a folder is a collection as it is.
     public var folder: String?
+    /// A video is only ever grouped with exact copies of itself, and never suggested for removal
+    /// otherwise.
+    public var video: Bool
+    /// What tells exact copies apart from everything else (videos only): the file's fingerprint.
+    public var fingerprint: String?
 
     public init(id: String, rel: String, time: Double, timeKnown: Bool, width: Int, height: Int, size: Int,
                 faceQualities: [Double?] = [], meFace: Int? = nil, aesthetic: Double? = nil, sharpness: Double,
-                utility: Bool = false, gps: (lat: Double, lon: Double)? = nil, me: Bool = false, folder: String? = nil) {
+                utility: Bool = false, gps: (lat: Double, lon: Double)? = nil, me: Bool = false, folder: String? = nil,
+                video: Bool = false, fingerprint: String? = nil) {
+        self.video = video; self.fingerprint = fingerprint
         self.id = id; self.rel = rel; self.time = time; self.timeKnown = timeKnown
         self.width = width; self.height = height; self.size = size
         self.faceQualities = faceQualities; self.meFace = meFace; self.aesthetic = aesthetic
