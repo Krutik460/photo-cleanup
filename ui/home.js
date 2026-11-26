@@ -22,7 +22,7 @@ function renderLaunch() {
     '<img class="lmark" src="/icon.png" alt="" draggable="false">' +
     '<h1>' + esc((A.app && A.app.name) || 'Photo Cleanup') + '</h1><div class="tagline">' + esc((A.app && A.app.tagline) || '') + '</div>' +
     '<div class="checks glass">' +
-      row('ok', n ? pl(n, 'photo folder') : 'No photo folders yet', n ? pl(A.folders.reduce((t, f) => t + f.photos, 0), 'photo') + ' analyzed on this Mac' : 'Add one to start. Everything is analyzed on this Mac.') +
+      row('ok', n ? pl(n, 'photo folder') : 'No photo folders yet', n ? mixed(A.folders.reduce((t, f) => t + f.photos, 0), A.folders.reduce((t, f) => t + (f.videos || 0), 0)) + ' analyzed on this Mac' : 'Add one to start. Everything is analyzed on this Mac.') +
       row(A.faceModel ? 'ok' : 'warn', A.faceModel ? 'Face recognition is on this Mac' : 'Face recognition is not in this build', A.faceModel ? 'It finds the photos you are in. Nothing is uploaded.' : 'Photos of you are not picked out.') +
       claude +
     '</div>' +
@@ -61,8 +61,8 @@ function renderHome() {
       '<button class="cardbtn" data-folder-menu="' + esc(f.id) + '" aria-label="More for ' + esc(f.name) + '">' + ic('more', 16) + '</button>' +
       '<span class="chipd">' + (f.connected ? esc(ago(f.lastOpened)) : ic('unplug', 12) + 'Not connected') + '</span>' +
       '<span class="fcap"><h3>' + esc(f.name) + '</h3><p>' + esc(f.path) + '</p></span>' +
-      '<span class="ffoot"><div><b>' + num(f.photos) + '</b><small>photos</small></div>' +
-      '<div class="prog"><b>' + (!f.groups ? (f.photos ? 'No look-alikes' : 'Not scanned yet') : done ? '<span class="ok">All ' + num(f.groups) + ' reviewed</span>' : num(f.groupsReviewed) + ' of ' + num(f.groups) + ' groups') + '</b><div class="track"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div></div>' +
+      '<span class="ffoot"><div><b>' + num(f.photos) + '</b><small>photos' + (f.videos ? ', ' + pl(f.videos, 'video') : '') + '</small></div>' +
+      '<div class="prog"><b>' + (!f.groups ? (f.photos || f.videos ? 'No look-alikes' : 'Not scanned yet') : done ? '<span class="ok">All ' + num(f.groups) + ' reviewed</span>' : num(f.groupsReviewed) + ' of ' + num(f.groups) + ' groups') + '</b><div class="track"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div></div>' +
       last + '</span></span></div>';
   }).join('');
   const hero = F.length
@@ -71,11 +71,11 @@ function renderHome() {
   $('#s-home').innerHTML =
     '<div class="hero' + (F.length ? '' : ' first') + '">' + hero +
     '<div class="figs glass">' +
-      (F.length ? '<div class="fig"><label>Waiting to clean up</label><strong>' + wait.n + '<span>' + wait.u + '</span></strong><small>' + pl(rmAll, 'photo') + ' in ' + pl(rmF, 'folder') + '</small></div>' +
+      (F.length ? '<div class="fig"><label>Waiting to clean up</label><strong>' + wait.n + '<span>' + wait.u + '</span></strong><small>' + pl(rmAll, sum('videos') ? 'file' : 'photo') + ' in ' + pl(rmF, 'folder') + '</small></div>' +
       '<div class="fig"><label>Reviewed' + ring(gAll ? gRev / gAll : 0, 18) + '</label><strong>' + num(gRev) + '<span>of ' + num(gAll) + '</span></strong><small>groups of similar shots</small></div>' : '') +
       '<button class="fig" data-act="launch" title="Show the opening check"><label><i class="dot' + (cl.ready ? '' : ' off') + '"></i>Claude</label><strong>' + (cl.checking ? 'Checking' : cl.ready ? 'Ready' : 'Not set up') + '</strong><small>' + (cl.ready && cl.version ? 'Version ' + esc(String(cl.version).replace(/\s*\(.*\)$/, '')) : cl.checking ? 'Looking for the CLI' : 'Second opinions are off') + '</small></button>' +
     '</div></div>' +
-    (F.length ? '<div class="sec"><h2>Folders</h2><p>' + pl(F.length, 'folder') + ' · ' + pl(sum('photos'), 'photo') + '</p></div>' : '') +
+    (F.length ? '<div class="sec"><h2>Folders</h2><p>' + pl(F.length, 'folder') + ' · ' + mixed(sum('photos'), sum('videos')) + '</p></div>' : '') +
     '<div class="folders">' + cards +
       '<button class="addcard glass" data-act="add"><span class="plus">' + ic('plus', 22) + '</span><b>Add a folder</b><small>Choose one, or drop it on the window</small></button>' +
     '</div>' +

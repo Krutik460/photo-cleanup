@@ -18,7 +18,7 @@ struct PhotoCleanupApp: App {
                     .keyboardShortcut("o")
                     .disabled(model.isBusy)
                 Divider()
-                Button("Scan for New Photos") { model.scan() }
+                Button("Scan for New Photos and Videos") { model.scan() }
                     .keyboardShortcut("r")
                     .disabled(!model.hasOpenFolder || model.isBusy)
                 Button("Import Review from the Old Scripts…") { model.importOldReview() }

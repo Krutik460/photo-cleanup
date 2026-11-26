@@ -143,13 +143,13 @@ async function appAction(name, body) {
 function scanToast(s) {
   if (s.cancelled) { toast('Scan stopped. What was analyzed is kept; scan again to continue.', null, 'scan'); return; }
   const parts = [];
-  if (s.analyzed) parts.push('analyzed ' + pl(s.analyzed, 'new photo'));
-  if (s.relinked) parts.push('found ' + pl(s.relinked, 'moved photo') + ' again');
-  if (s.missing) parts.push(pl(s.missing, 'photo') + ' ' + isAre(s.missing) + ' no longer in the folder');
+  if (s.analyzed) parts.push('analyzed ' + pl(s.analyzed, S.videos ? 'new file' : 'new photo'));
+  if (s.relinked) parts.push('found ' + pl(s.relinked, S.videos ? 'moved file' : 'moved photo') + ' again');
+  if (s.missing) parts.push(files(s.missing) + ' ' + isAre(s.missing) + ' no longer in the folder');
   const failed = (s.failed || []).length;
   if (failed) parts.push(pl(failed, 'file') + ' could not be read');
   const text = parts.join(', ');
-  toast(text ? text.charAt(0).toUpperCase() + text.slice(1) + '.' : 'Up to date: ' + pl(S.order.length, 'photo') + ', ' + pl(S.groups.length, 'group') + '.', failed ? 'err' : null, 'scan');
+  toast(text ? text.charAt(0).toUpperCase() + text.slice(1) + '.' : 'Up to date: ' + tallyAll(S.total) + ', ' + pl(S.groups.length, 'group') + '.', failed ? 'err' : null, 'scan');
 }
 // The Mac app calls these: something changed outside the page, or a folder is over the window.
 window.appChanged = () => { clearTimeout(appT); appT = setTimeout(refreshApp, 60); };

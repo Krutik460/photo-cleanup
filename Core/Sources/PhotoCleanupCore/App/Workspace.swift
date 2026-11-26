@@ -144,7 +144,7 @@ public final class Workspace {
             let opened = library.lastOpened?.timeIntervalSince1970
             list.append((opened ?? 0, library.name, [
                 "id": dir.lastPathComponent, "name": library.name, "path": (library.root.path as NSString).abbreviatingWithTildeInPath,
-                "photos": library.photoCount, "connected": library.isPhotoFolderAvailable, "lastOpened": opened as Any? ?? NSNull(),
+                "photos": library.count(of: .photo), "videos": library.count(of: .video), "connected": library.isPhotoFolderAvailable, "lastOpened": opened as Any? ?? NSNull(),
                 "groups": s.groups, "groupsReviewed": s.reviewedGroups, "toRemove": s.toRemove, "toRemoveBytes": s.toRemoveBytes,
                 "savedBytes": s.savedBytes, "waitingBytes": s.waitingBytes, "you": s.you, "covers": s.covers.map(String.init),
             ]))
@@ -300,7 +300,7 @@ public final class Workspace {
     public func startScan(photosOfYou: [URL] = []) {
         let current: Session? = locked {
             guard let s = session, scan == nil else { return nil }
-            scan = ["title": "Looking for photos", "done": 0, "total": 0, "failed": 0]
+            scan = ["title": "Looking for photos and videos", "done": 0, "total": 0, "failed": 0]
             return s
         }
         guard let s = current else { return }
@@ -312,7 +312,7 @@ public final class Workspace {
                 let summary = try await Analyzer(library: s.library, embedder: embedder).run { [weak self] p in
                     guard let self else { return }
                     let title: String? = switch p.phase {
-                    case .listing: "Looking for photos"
+                    case .listing: "Looking for photos and videos"
                     case .analyzing: "Analyzing photos"
                     case .neighbors: "Comparing photos"
                     case .done: nil

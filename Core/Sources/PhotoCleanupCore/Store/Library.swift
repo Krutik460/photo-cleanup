@@ -62,8 +62,11 @@ public final class Library {
 
     public var name: String { (try? store.meta("name")) ?? root.lastPathComponent }
 
-    /// Photos that are in the folder and could be read.
-    public var photoCount: Int {
-        (try? store.db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM photo WHERE missing = 0 AND width > 0") ?? 0 }) ?? 0
+    /// Photos and videos that are in the folder and could be read.
+    public var photoCount: Int { count(of: nil) }
+
+    public func count(of media: MediaKind?) -> Int {
+        let only = media.map { " AND media = '\($0.rawValue)'" } ?? ""
+        return (try? store.db.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM photo WHERE missing = 0 AND width > 0" + only) ?? 0 }) ?? 0
     }
 }

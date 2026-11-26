@@ -56,12 +56,14 @@ const I = {
   everyday: '<path d="m4 11 8-7 8 7"/><path d="M6 9.500V20h12V9.500"/>',
   terminal: '<rect x="3.500" y="5" width="17" height="14" rx="2.500"/><path d="m7.500 10 3 2.500-3 2.500M13 15h3.500"/>',
   finder: '<rect x="4" y="4.500" width="16" height="15" rx="3"/><path d="M12 4.500c-1 3-1.200 5.500-1.200 8h2.400c0 2.500.3 4.500.8 7M8.300 9v1.200M15.700 9v1.200M8 15c2.300 1.500 5.700 1.500 8 0"/>',
+  film: '<rect x="3.500" y="5.500" width="12.500" height="13" rx="2.500"/><path d="m16 10.300 4.500-2.600v8.600L16 13.700"/>',
   expand: '<path d="M9 4.500H4.500V9M15 4.500h4.500V9M9 19.500H4.500V15M15 19.500h4.500V15"/>',
 };
 const SOLID = {
   star: '<path d="m12 3.3 2.7 5.5 6 .9-4.400 4.200 1.100 6L12 17l-5.400 2.900 1.100-6-4.400-4.200 6-.9z"/>',
   spark: '<path d="m10.5 3 1.9 5.100 5.100 1.900-5.100 1.900-1.900 5.100-1.900-5.100L3.500 10l5.100-1.900zM18.500 14l.9 2.600 2.600.9-2.600.9-.9 2.600-.9-2.600-2.600-.9 2.600-.9z"/>',
   more: '<circle cx="5.500" cy="12" r="1.700"/><circle cx="12" cy="12" r="1.700"/><circle cx="18.500" cy="12" r="1.700"/>',
+  play: '<path d="M8.300 5.200v13.600a.9.9 0 0 0 1.400.8l10.300-6.800a.9.9 0 0 0 0-1.500L9.700 4.400a.9.9 0 0 0-1.400.8z"/>',
 };
 function ic(name, size, cls) {
   const s = size || 16, c = cls ? ' class="' + cls + '"' : '';
@@ -77,6 +79,7 @@ function ring(pct, size, cls) {
 const thumbSrc = (id) => '/thumb/' + id;  // 480 px, made by the scan
 const midSrc = (id) => '/mid/' + id;      // 1,280 px, for covers and the large favorite
 const fullSrc = (id) => '/full/' + id;
+const videoSrc = (id) => '/video/' + id;  // the file itself, played in parts
 const img = (src, cls) => '<img' + (cls ? ' class="' + cls + '"' : '') + ' src="' + src + '" alt="" draggable="false" decoding="async" loading="lazy">';
 function mosaic(srcs) {
   const a = srcs.slice(0, 4);
@@ -124,7 +127,7 @@ const S = {
   loaded: false, root: '', photos: {}, order: [], groups: [], groupById: {},
   collections: [], colById: {}, newestFirst: [], dupTitles: new Set(),
   decisions: {}, haiku: {}, moved: new Set(), filed: {}, reviewed: new Set(),
-  total: null, stats: new Map(),
+  total: null, stats: new Map(), videos: 0,
 };
 
 async function load() {
@@ -145,9 +148,23 @@ async function load() {
   S.moved = new Set(d.moved);
   S.filed = d.filed || {};
   S.reviewed = new Set(d.reviewed || []);
+  S.videos = S.order.filter(isVideo).length;
   S.loaded = true;
   recount();
 }
+
+/* photos and videos: a video is an item like a photo, and says how long it is */
+const isVideo = (id) => S.photos[id].dur != null;
+const clock = (sec) => { const s = Math.max(0, Math.round(sec)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+// "25 photos and 3 videos", "25 photos", "3 videos"
+const mixed = (photos, videos) => (photos || !videos ? pl(photos, 'photo') : '') + (photos && videos ? ' and ' : '') + (videos ? pl(videos, 'video') : '');
+function countOf(ids) {
+  let v = 0;
+  for (const id of ids) if (isVideo(id)) v++;
+  return mixed(ids.length - v, v);
+}
+// A number of the folder's files when it is not known which of them are videos (what a file step moved).
+const files = (n) => pl(n, S.videos ? 'file' : 'photo');
 
 /* your choice, else Claude's pick, else the app's own suggestion */
 const suggestion = (id) => (S.haiku[id] && S.haiku[id].state) || S.photos[id].auto;
@@ -227,17 +244,22 @@ function coverPhotos(c, n) {
 }
 
 /* counts */
+// `photos` and `remove` count photos and videos alike; `videos` and `rmVideos` say how many are videos.
 function tally(ids) {
-  const t = { photos: 0, fav: 0, remove: 0, bytes: 0 };
+  const t = { photos: 0, videos: 0, fav: 0, remove: 0, rmVideos: 0, bytes: 0 };
   for (const id of ids) {
     if (!live(id)) continue;
+    const v = isVideo(id);
     t.photos++;
+    if (v) t.videos++;
     const s = eff(id);
     if (s === 'fav') t.fav++;
-    else if (s === 'remove') { t.remove++; t.bytes += S.photos[id].size; }
+    else if (s === 'remove') { t.remove++; if (v) t.rmVideos++; t.bytes += S.photos[id].size; }
   }
   return t;
 }
+const tallyAll = (t) => mixed(t.photos - t.videos, t.videos);
+const tallyRemove = (t) => mixed(t.remove - t.rmVideos, t.rmVideos);
 function progress(groups) {
   let done = 0;
   for (const g of groups) if (groupDone(g)) done++;

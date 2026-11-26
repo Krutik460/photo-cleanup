@@ -29,14 +29,20 @@ final class AppModel: ObservableObject {
     weak var webView: WKWebView?
     private var notifyScheduled = false
 
+    static let releaseIdentifier = "local.photocleanup.app"
+
     var librariesDir: URL { workspace.librariesDir }
     let recognisesFaces: Bool
 
     init() {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        // ~/Library/Application Support/Photo Cleanup/Libraries, one folder per photo folder.
+        // ~/Library/Application Support/Photo Cleanup/Libraries, one folder per photo folder. A copy of
+        // the app built under another identifier (a development copy next to the installed app) keeps
+        // its libraries under that identifier, so it can never open or change the real ones.
+        let id = Bundle.main.bundleIdentifier ?? AppModel.releaseIdentifier
+        let home = id == AppModel.releaseIdentifier ? "Photo Cleanup" : id
         let libraries = ProcessInfo.processInfo.environment["PHOTOCLEANUP_LIBRARIES"].map { URL(fileURLWithPath: $0) }
-            ?? support.appendingPathComponent("Photo Cleanup/Libraries")
+            ?? support.appendingPathComponent("\(home)/Libraries")
         // Face recognition model inside the app; nil when the app was built without it.
         let embedder = Bundle.main.url(forResource: "SFace", withExtension: "mlmodelc").flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
         recognisesFaces = embedder != nil
