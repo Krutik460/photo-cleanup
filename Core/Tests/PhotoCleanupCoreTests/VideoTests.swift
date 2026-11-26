@@ -106,7 +106,7 @@ final class VideoTests: XCTestCase {
         try Data("not a video".utf8).write(to: photos.appendingPathComponent("broken.mp4"))
 
         let s = try await scan()
-        XCTAssertEqual([s.found, s.analyzed], [5, 5])
+        XCTAssertEqual([s.found, s.analyzed, s.analyzedVideos], [5, 5, 3])
         XCTAssertEqual(s.failed, ["broken.mp4"])
         XCTAssertNil(try row("IMG_1.MOV"), "the video half of a Live Photo is not an item")
 

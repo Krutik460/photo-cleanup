@@ -1147,19 +1147,74 @@ build, its caches, WebKit data, preferences, saved state, scratch libraries.
 - [x] V1. Spike: a video plays in a WKWebView through `photocleanup://` with byte ranges (H.264
       mp4 and HEVC mov, autoplay to the end, no error). WebKit asks for about 300 small bounded
       ranges (largest 98 KB), never an open-ended one, so answering exactly the range asked is enough
-- [ ] V2. Store v6, scan lists videos, Live Photo rule in one place, video analysis (poster, time,
+- [x] V2. Store v6, scan lists videos, Live Photo rule in one place, video analysis (poster, time,
       place, duration), shared frame analysis; tests
-- [ ] V3. Grouping: videos apart from photos, copies grouped, never suggested alone; tests
-- [ ] V4. Router `/video`, ranges in `SchemeHandler` and the development server; posters for
+- [x] V3. Grouping: videos apart from photos, copies grouped, never suggested alone; tests
+- [x] V4. Router `/video`, ranges in `SchemeHandler` and the development server; posters for
       `/mid` and `/full`; tests
-- [ ] V5. Interface: tiles, viewer playback, counts and wording
-- [ ] V6. File steps with videos (organize, clean up, undo, relink); tests
-- [ ] R1. The group screen on a scratch folder, pictured for the owner
-- [ ] R2. Ticks, keys, the singles step, the end panel, the switch, library views
-- [ ] C1. Model cache: reproduce, fix, check after two builds
-- [ ] C2. Previews to Caches
-- [ ] U1. Update check: core with tests, toolbar button, Settings switch, README
-- [ ] E1. End to end on a scratch folder with photos and videos (never the real folder): scan,
-      review group by group, play, organize, clean up, undo both; light and dark at 1200 and 1728
-- [ ] E2. README, version 0.3.0, PR with `docs/pr/<n>-videos-and-group-review.md`
-- [ ] E3. Remove the test copy and everything it left; list what was removed
+- [x] V5. Interface: tiles, viewer playback, counts and wording, a Videos view in the Library
+- [x] V6. File steps with videos (organize, clean up, undo, relink); tests
+- [x] R1. The group screen on a scratch folder, pictured for the owner (sent while building)
+- [x] R2. Ticks, keys, the singles step, the end panel, the switch, library views
+- [x] C1. Model cache: reproduced, fixed, checked in the app (110 MB down to 37 MB at launch)
+- [x] C2. Previews to Caches
+- [x] U1. Update check: core with tests, toolbar button, Settings switch, README
+- [x] E1. End to end on a scratch folder with photos and videos (never the real folder)
+- [x] E2. README, version 0.3.0, PR with `docs/pr/<n>-videos-and-group-review.md`
+- [x] E3. Remove the test copy and everything it left; list what was removed
+
+## Review
+
+Built as planned, with these changes found while building and checking it:
+
+- **Clean-up left the video half of a Live Photo behind.** It moved the photo to `_to_remove` and
+  left the `.mov` where it was. That wasted the space, and with videos scanned the leftover would
+  have shown up as a 3-second video of its own. One routine (`Catalog.move`) now moves a photo
+  with its video for organize, clean-up and both undos.
+- **A video filed next to a photo of the same name.** Two cameras count alike: `A/IMG_5.jpg` and
+  `B/IMG_5.mov` in one collection folder would have made the next scan take the video for the
+  photo's Live Photo half. A video the library knows at its path is never taken for one.
+  Known and unchanged: on a first scan, a long video named exactly like a photo next to it is
+  still taken as its Live Photo half (it moves with the photo and is not listed).
+- **What makes the model cache grow.** Core ML keeps a 37 MB compiled copy of the face model per
+  place the model was loaded from (measured: same place twice, one copy; another path, another
+  copy; touching the files changes nothing; every compute option writes one, CPU only too). The
+  six copies of 2026-11-24 were six places a build was run from. The app now empties that cache
+  at launch when it holds more than one and a half times the model; Core ML makes the one copy
+  again in about a tenth of a second.
+- **Video in the web view.** Checked before anything was built on it: WebKit asks for about 300
+  small ranges per clip (largest 98 KB) through the app's own scheme, so the app answers exactly
+  the range asked. A browser on the development server asks for "the rest"; it gets 8 MB at most
+  per reply and asks again.
+- **Board layout.** A fixed split by number of shots left the others small. The board now tries
+  every split and row count and takes the one that shows the others largest while the favorite
+  is still 1.25 to 1.5 times higher. Past about 20 shots in a small window the others scroll.
+- A Videos view in the Library, and counts that say what they count ("63 photos and 7 videos";
+  "files" where a file step reports a number).
+- A copy of the app built under another identifier keeps its own libraries, caches and settings,
+  so a development copy cannot open or migrate the real library (owner's rule).
+
+Verified:
+
+- 114 tests pass (92 before): videos from scan to file steps on generated clips, byte ranges,
+  grouping rules, the update check on canned replies, the two cache rules.
+- A made-up folder of 71 files (63 photos in bursts, 7 videos with two exact copies, one Live
+  Photo), built from pictures that ship with macOS. In the development copy: add and scan, 15
+  groups in 3 collections, every video with its time, place and length; a video plays in the
+  viewer (2.5 s in, no error) and keeps playing while it is marked.
+- Through the Finish page: organize 36 files into a folder (the Live Photo video along), clean up
+  53 (3 videos, the Live Photo video with its photo), undo clean-up, undo organize. The folder
+  ended with the same 71 files and no folder the app had made; the journal balanced.
+- Pictured at 1100 x 680, 1440 x 900 and 1728 x 1080, light and dark: groups of 2, 3 and 10
+  shots, a video group, the last step, the All page, home and the update sheet.
+- GitHub's real answer for the latest release (v0.2.0, two assets) is read as expected.
+
+Not done, and why:
+
+- The pictures in the README still show the page of all groups. The test folder is made of
+  Apple's pictures, which cannot go into a public repository; new pictures need the drawn
+  stand-ins of the launch video.
+- No release was made. The Update button needs a release newer than the running version, and an
+  installed 0.2.0 does not have the check: 0.3.0 is installed by hand once.
+- The real folder's drive was not connected, so which video formats it holds is not known.
+  Formats AVFoundation does not open (`avi`, `mkv`, `mts`) are not listed.

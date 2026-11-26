@@ -16,6 +16,7 @@ public struct ScanProgress: Sendable {
 public struct ScanSummary: Sendable, Equatable {
     public var found = 0  // photos and videos in the photo folder
     public var analyzed = 0  // new or changed files analyzed in this scan
+    public var analyzedVideos = 0  // how many of those are videos
     public var relinked = 0  // known photos found again at a new path
     public var missing = 0  // known photos whose file is gone
     public var failed: [String] = []  // paths that could not be decoded
@@ -170,6 +171,7 @@ public final class Analyzer {
                     summary.failed.append("\(item.file.rel): \(error.localizedDescription)")
                 }
                 summary.analyzed += 1
+                if item.file.media == .video { summary.analyzedVideos += 1 }
                 state.done += 1
                 state.failed = summary.failed.count
                 progress(state)

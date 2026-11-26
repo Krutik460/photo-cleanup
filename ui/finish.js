@@ -34,7 +34,7 @@ function renderFinish() {
     const p = folderPlan(c);
     let sub;
     if (c.folderOn) sub = (p.toFile ? files(p.toFile) + ' into ' : 'All in ') + '<code>' + esc(c.folder) + '/</code>' + (p.filed && p.toFile ? ' · ' + num(p.filed) + ' already there' : '');
-    else sub = p.toBack ? files(p.toBack) + ' go back where they came from' : c.source ? 'In your folder <code>' + esc(c.source) + '/</code>' : 'Photos stay where they are';
+    else sub = p.toBack ? files(p.toBack) + ' go back where they came from' : c.source ? 'In your folder <code>' + esc(c.source) + '/</code>' : 'Everything stays where it is';
     return '<div class="frow"><span class="fk">' + ic(c.kind, 15) + '</span><span class="tx"><b>' + esc(colTitle(c)) + '</b><small>' + sub + '</small></span>' +
       '<button class="switch" role="switch" aria-checked="' + !!c.folderOn + '" data-fin-switch="' + esc(c.id) + '" aria-label="Make a folder for ' + esc(colTitle(c)) + '"></button></div>';
   }).join('');
@@ -43,7 +43,7 @@ function renderFinish() {
   if (m.toBack) orgParts.push(files(m.toBack) + ' back where they came from');
   const orgLead = orgN ? orgParts.join(', ') : filedN ? 'The folders match your collections' : 'Switch on the collections that should get a folder';
   const organizeStep = '<section class="fstep"><div class="fh"><span class="fi">' + ic('folder', 18) + '</span><div><h3>Organize files</h3><div class="lead">' + orgLead + '</div>' +
-    '<p>Every photo of a switched-on trip, event or month moves into a folder named after its date and name. You can do this before reviewing, and run it again after renaming or moving photos.</p></div></div>' +
+    '<p>Every photo and video of a switched-on trip, event or month moves into a folder named after its date and name. You can do this before reviewing, and run it again after renaming or moving photos.</p></div></div>' +
     (rows ? '<div class="frows">' + rows + '</div>' : '') +
     stepFoot('organize', orgN, filedN, {
       go: 'Organize ' + files(orgN), ask: 'Move ' + orgParts.join(', and ') + ' now?', sentence: 'Nothing is deleted, and you can keep reviewing afterwards.',
@@ -68,7 +68,7 @@ function renderFinish() {
     (m.remove ? '<button class="btn small glass" data-fin="see">See them</button>' : '') + '</div>' +
     (rmIds.length ? '<div class="strip">' + rmIds.map((id) => img(thumbSrc(id))).join('') + '</div>' : '') +
     (dupGroups.length ? '<div class="fpart"><div class="lead">' + (dups ? pl(dups, 'duplicate copy', 'duplicate copies') + ' · ' + bytes(dupBytes).t : 'No duplicate copies left') + '</div>' +
-      '<p>Exact copies of photos you keep, in ' + pl(dupGroups.length, 'group') + '. Nothing to judge, so they can go first' + (dupOpen ? ', and their ' + pl(dupOpen, 'group') + ' ' + isAre(dupOpen) + ' marked reviewed.' : '.') + '</p>' +
+      '<p>Exact copies of photos' + (S.videos ? ' and videos' : '') + ' you keep, in ' + pl(dupGroups.length, 'group') + '. Nothing to judge, so they can go first' + (dupOpen ? ', and their ' + pl(dupOpen, 'group') + ' ' + isAre(dupOpen) + ' marked reviewed.' : '.') + '</p>' +
       stepFoot('dups', dups, 0, {
         go: 'Remove duplicate copies', ask: 'Move ' + pl(dups, 'duplicate copy', 'duplicate copies') + ' (' + bytes(dupBytes).t + ') to _to_remove now?',
         sentence: 'Only the extra copies go; the copy you keep stays. Undo clean-up puts them back.', yes: 'Yes, remove the copies', danger: true, idle: '',

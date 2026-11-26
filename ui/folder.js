@@ -22,7 +22,7 @@ function colCard(c, hint) {
     '<div class="ccap">' +
     (hint ? '<button class="mhint" data-merge-hint="' + esc(c.id) + '" title="Merge these two into one collection">' + ic('merge', 12) + '<span>' + esc(gapText(hint)) + '</span><b>Merge</b></button>' : '') +
     '<h3' + (U.renaming === c.id ? ' contenteditable="true" spellcheck="false"' : '') + '>' + esc(title) + '</h3>' +
-    '<div class="sub"><p>' + esc(colMeta(c, true)) + ' · ' + tallyAll(st) + '</p>' +
+    '<div class="sub"><p>' + esc(colMeta(c, true)) + ' · ' + tallyShort(st) + '</p>' +
     (st.remove ? '<span class="rm"><i></i>' + num(st.remove) + ' to remove</span>' : '') + '</div></div>' +
     '</div></article>';
 }
