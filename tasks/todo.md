@@ -1214,7 +1214,9 @@ Not done, and why:
 - The pictures in the README still show the page of all groups. The test folder is made of
   Apple's pictures, which cannot go into a public repository; new pictures need the drawn
   stand-ins of the launch video.
-- No release was made. The Update button needs a release newer than the running version, and an
-  installed 0.2.0 does not have the check: 0.3.0 is installed by hand once.
+- An installed 0.2.0 does not have the update check: 0.3.0 is installed by hand once. Release
+  0.3.0 (the public disk image, built with `scripts/make-dmg.sh --public`) follows the merge of
+  this pull request (asked by the owner on 2026-11-26); from then on the Update button has
+  something to find.
 - The real folder's drive was not connected, so which video formats it holds is not known.
   Formats AVFoundation does not open (`avi`, `mkv`, `mts`) are not listed.
