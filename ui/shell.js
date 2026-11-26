@@ -123,7 +123,7 @@ function morph(fn) {
 
 /* ---------- toolbar ---------- */
 function renderBars() {
-  $('#bar-home').innerHTML = '<span class="title">' + esc((A.app && A.app.name) || 'Photo Cleanup') + '</span><span class="sp"></span>' +
+  $('#bar-home').innerHTML = '<span class="title">' + esc((A.app && A.app.name) || 'Photo Cleanup') + '</span><span class="sp"></span><span class="updslot"></span>' +
     '<button class="btn glass icon" data-act="settings" title="Settings" aria-label="Settings">' + ic('gear', 16) + '</button>' +
     '<button class="btn glass" data-act="add">' + ic('plus', 15) + 'Add folder</button>';
   $('#bar-folder').innerHTML =
@@ -131,7 +131,7 @@ function renderBars() {
       '<button data-seg="organize">Organize</button>' +
       '<button data-seg="review">Review<em id="seg-left"></em></button>' +
       '<button data-seg="finish">Finish<em id="seg-rm"></em></button></div>' +
-    '<span class="savest ok" id="savest" role="status"></span><span class="sp"></span>' +
+    '<span class="savest ok" id="savest" role="status"></span><span class="sp"></span><span class="updslot"></span>' +
     '<label class="search glass">' + ic('search', 15) + '<input id="q" type="text" placeholder="Search collections" spellcheck="false" autocomplete="off"></label>' +
     '<button class="btn glass" data-act="opinion" id="btn-opinion">' + ic('spark', 16, 'spark') + 'Second opinion</button>' +
     '<span id="scanslot"></span>' +
@@ -142,6 +142,24 @@ function renderBars() {
     if (U.route.name === 'organize') renderLibrary();
   });
   paintScan();
+  paintUpdate();
+}
+// The Update button, in both toolbars, when a newer version has been released.
+function paintUpdate() {
+  const u = A.update, found = u && u.available;
+  const html = found ? '<button class="btn update" data-act="update" title="You have version ' + esc(u.current) + '">' + ic('down', 15) + 'Update to ' + esc(found.version) + '</button>' : '';
+  $$('.updslot').forEach((el) => { if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } });
+}
+function openUpdate() {
+  const u = A.update || {}, found = u.available;
+  if (!found) return;
+  openSheet('update',
+    '<h2>Photo Cleanup ' + esc(found.version) + ' is available</h2>' +
+    '<p>You have ' + esc(u.current) + '. ' + (found.download ? 'The download is a disk image: open it and drag Photo Cleanup to Applications, replacing the one there.' : 'The release page has the download.') +
+    ' Your folders, choices and reviews stay as they are.</p>' +
+    '<p style="margin-top:10px;font-size:12.5px;color:var(--ink-3)">The app is not notarized by Apple, so macOS asks once before the new version opens: System Settings, Privacy &amp; Security, Open Anyway.</p>' +
+    '<div class="btns"><button class="btn quiet" data-act="sheet-close">Later</button><button class="btn quiet" data-act="update-notes">What is new</button>' +
+    '<button class="btn primary" data-act="update-get">' + ic('down', 15) + (found.download ? 'Download' : 'Open the release page') + '</button></div>');
 }
 function paintSeg() {
   if (!S.loaded || !$('#seg')) return;

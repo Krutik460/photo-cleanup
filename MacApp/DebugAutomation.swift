@@ -12,6 +12,8 @@ import WebKit
 ///   PHOTOCLEANUP_LAUNCH     "skip" goes straight past the opening check
 ///   PHOTOCLEANUP_FAKE_CLAUDE  "missing" or "signedout": what the page is told about the Claude CLI,
 ///                           in this process only, so those states can be pictured on a signed-in Mac
+///   PHOTOCLEANUP_FAKE_UPDATE  a version, for example "9.9.9": the page is told that release exists, so the
+///                           Update button and its sheet can be pictured
 ///   PHOTOCLEANUP_APPEARANCE "light" or "dark", whatever the system is set to
 ///   PHOTOCLEANUP_SIZE       window size, for example "1200x800"
 ///   PHOTOCLEANUP_SHOW       "settings" opens the Settings window
@@ -59,6 +61,10 @@ enum DebugAutomation {
                     : Workspace.Claude(path: "/usr/local/bin/claude", version: "2.1.330 (Claude Code)", loggedIn: false,
                                        detail: "Not signed in. Run `claude` in Terminal and sign in.", checking: false))
             }
+        }
+        if let version = env["PHOTOCLEANUP_FAKE_UPDATE"] {
+            let page = "https://github.com/Krutik460/photo-cleanup/releases/latest"
+            workspace.loadUpdateMemory = { UpdateMemory(checkedAt: Date().timeIntervalSince1970, latest: AppUpdate(version: version, page: page, download: page)) }
         }
         if let folder = env["PHOTOCLEANUP_ADD"] {
             let me = env["PHOTOCLEANUP_ME"].map { [URL(fileURLWithPath: $0)] } ?? []

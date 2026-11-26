@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage(Preferences.claudePath) private var claudePath = ""
     @AppStorage(Preferences.claudeModel) private var claudeModel = "haiku"
     @AppStorage(Preferences.claudeParallel) private var parallel = 3
+    @AppStorage(Preferences.checkForUpdates) private var checkForUpdates = true
 
     var body: some View {
         Form {
@@ -46,6 +47,24 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                Toggle("Check for a new version once a day", isOn: $checkForUpdates)
+                LabeledContent("Version") {
+                    HStack {
+                        Text(updateText).foregroundStyle(.secondary)
+                        Button(model.update["available"] is [String: Any] ? "Get It…" : "Check Now") {
+                            if model.update["available"] is [String: Any] { model.page("openUpdate()") } else { model.checkForUpdate() }
+                        }
+                        .disabled(model.update["checking"] as? Bool == true)
+                    }
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("The check is one request to GitHub for the latest release. Nothing about this Mac or your photos is sent.")
+                    .foregroundStyle(.secondary)
+            }
+
             Section("On this Mac") {
                 LabeledContent("Face recognition", value: model.recognisesFaces ? "Included" : "Not included in this build")
                 LabeledContent("Libraries") {
@@ -61,6 +80,14 @@ struct SettingsView: View {
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear { model.refreshClaude() }
+    }
+
+    private var updateText: String {
+        let current = model.update["current"] as? String ?? ""
+        if model.update["checking"] as? Bool == true { return "\(current) · checking…" }
+        if let found = model.update["available"] as? [String: Any], let version = found["version"] as? String { return "\(current) · \(version) is available" }
+        if model.update["failed"] as? Bool == true { return "\(current) · could not reach GitHub" }
+        return model.update["checkedAt"] is Double ? "\(current) · up to date" : current
     }
 
     private var statusText: String {

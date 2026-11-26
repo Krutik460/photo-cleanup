@@ -7,6 +7,8 @@ enum Preferences {
     static let claudePath = "claudePath"
     static let claudeModel = "claudeModel"
     static let claudeParallel = "claudeParallel"
+    static let checkForUpdates = "checkForUpdates"
+    static let updateMemory = "updateMemory"
 
     static var model: String { UserDefaults.standard.string(forKey: claudeModel) ?? "haiku" }
     static var parallel: Int { max(1, min(6, UserDefaults.standard.object(forKey: claudeParallel) as? Int ?? 3)) }
@@ -43,8 +45,13 @@ final class AppModel: ObservableObject {
         let home = id == AppModel.releaseIdentifier ? "Photo Cleanup" : id
         let libraries = ProcessInfo.processInfo.environment["PHOTOCLEANUP_LIBRARIES"].map { URL(fileURLWithPath: $0) }
             ?? support.appendingPathComponent("\(home)/Libraries")
+        // Previews and Core ML's compiled model are caches: they live where macOS may reclaim them.
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent(id)
+        if ProcessInfo.processInfo.environment["PHOTOCLEANUP_LIBRARIES"] == nil { Library.previewsRoot = caches.appendingPathComponent("Previews") }
         // Face recognition model inside the app; nil when the app was built without it.
-        let embedder = Bundle.main.url(forResource: "SFace", withExtension: "mlmodelc").flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
+        let model = Bundle.main.url(forResource: "SFace", withExtension: "mlmodelc")
+        if let model { trimCompiledModelCache(in: caches, model: model) }
+        let embedder = model.flatMap { try? CoreMLFaceEmbedder(compiledModelAt: $0) }
         recognisesFaces = embedder != nil
         var ui = Bundle.main.resourceURL!.appendingPathComponent("ui")
         #if DEBUG
@@ -57,10 +64,19 @@ final class AppModel: ObservableObject {
         workspace.claudeModel = { Preferences.model }
         workspace.claudeParallel = { Preferences.parallel }
         workspace.ui = native
+        workspace.appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        workspace.updatesEnabled = { UserDefaults.standard.object(forKey: Preferences.checkForUpdates) as? Bool ?? true }
+        workspace.loadUpdateMemory = { UserDefaults.standard.data(forKey: Preferences.updateMemory).flatMap { try? JSONDecoder().decode(UpdateMemory.self, from: $0) } }
+        workspace.saveUpdateMemory = { UserDefaults.standard.set(try? JSONEncoder().encode($0), forKey: Preferences.updateMemory) }
         workspace.onChange = { [weak self] in
             DispatchQueue.main.async { self?.workspaceChanged() }
         }
         workspace.refreshClaude()
+        // Once a day at most, and again when the app comes back to the front after a day.
+        workspace.checkForUpdate()
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [workspace] _ in
+            workspace.checkForUpdate()
+        }
     }
 
     /// The workspace reports every step of a scan; the page and the menus hear about it a few times a second.
@@ -73,6 +89,7 @@ final class AppModel: ObservableObject {
             self.claude = self.workspace.claudeState
             self.hasOpenFolder = self.workspace.hasOpenFolder
             self.isBusy = self.workspace.isBusy
+            self.update = self.workspace.state()["update"] as? [String: Any] ?? [:]
             self.page("window.appChanged && window.appChanged()")
         }
     }
@@ -83,6 +100,10 @@ final class AppModel: ObservableObject {
     }
 
     func refreshClaude() { workspace.refreshClaude() }
+
+    /// What Settings says about updates.
+    @Published var update: [String: Any] = [:]
+    func checkForUpdate() { workspace.checkForUpdate(force: true) }
 
     func scan() { workspace.startScan() }
 
@@ -156,6 +177,10 @@ final class NativeUI: WorkspaceUI {
 
     func openSettings() {
         DispatchQueue.main.async { self.showSettings?() }
+    }
+
+    func open(_ url: URL) {
+        DispatchQueue.main.async { NSWorkspace.shared.open(url) }
     }
 
     func openTerminal() {

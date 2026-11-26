@@ -61,8 +61,9 @@ function renderHome() {
       '<button class="cardbtn" data-folder-menu="' + esc(f.id) + '" aria-label="More for ' + esc(f.name) + '">' + ic('more', 16) + '</button>' +
       '<span class="chipd">' + (f.connected ? esc(ago(f.lastOpened)) : ic('unplug', 12) + 'Not connected') + '</span>' +
       '<span class="fcap"><h3>' + esc(f.name) + '</h3><p>' + esc(f.path) + '</p></span>' +
-      '<span class="ffoot"><div><b>' + num(f.photos) + '</b><small>photos' + (f.videos ? ', ' + pl(f.videos, 'video') : '') + '</small></div>' +
-      '<div class="prog"><b>' + (!f.groups ? (f.photos || f.videos ? 'No look-alikes' : 'Not scanned yet') : done ? '<span class="ok">All ' + num(f.groups) + ' reviewed</span>' : num(f.groupsReviewed) + ' of ' + num(f.groups) + ' groups') + '</b><div class="track"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div></div>' +
+      '<span class="ffoot"><div><b>' + num(f.photos) + '</b><small>' + (f.photos === 1 ? 'photo' : 'photos') + '</small></div>' +
+      (f.videos ? '<div><b>' + num(f.videos) + '</b><small>' + (f.videos === 1 ? 'video' : 'videos') + '</small></div>' : '') + '' +
+      '<div class="prog"><b>' + (!f.groups ? (f.photos || f.videos ? 'No look-alikes' : 'Not scanned yet') : done ? '<span class="ok">All ' + num(f.groups) + ' reviewed</span>' : '<span>' + num(f.groupsReviewed) + ' of ' + num(f.groups) + '</span><span>groups</span>') + '</b><div class="track"><i style="width:' + (pct * 100).toFixed(1) + '%"></i></div></div>' +
       last + '</span></span></div>';
   }).join('');
   const hero = F.length

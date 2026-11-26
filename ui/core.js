@@ -56,6 +56,7 @@ const I = {
   everyday: '<path d="m4 11 8-7 8 7"/><path d="M6 9.500V20h12V9.500"/>',
   terminal: '<rect x="3.500" y="5" width="17" height="14" rx="2.500"/><path d="m7.500 10 3 2.500-3 2.500M13 15h3.500"/>',
   finder: '<rect x="4" y="4.500" width="16" height="15" rx="3"/><path d="M12 4.500c-1 3-1.200 5.500-1.200 8h2.400c0 2.500.3 4.500.8 7M8.300 9v1.200M15.700 9v1.200M8 15c2.300 1.500 5.700 1.500 8 0"/>',
+  down: '<path d="M12 4.500v13M6.500 12.500 12 18l5.500-5.500"/>',
   film: '<rect x="3.500" y="5.500" width="12.500" height="13" rx="2.500"/><path d="m16 10.300 4.500-2.600v8.600L16 13.700"/>',
   expand: '<path d="M9 4.500H4.500V9M15 4.500h4.500V9M9 19.500H4.500V15M15 19.500h4.500V15"/>',
 };
@@ -259,6 +260,7 @@ function tally(ids) {
   return t;
 }
 const tallyAll = (t) => mixed(t.photos - t.videos, t.videos);
+const tallyShort = (t) => tallyAll(t).replace(' and ', ', ');  // where room is tight
 const tallyRemove = (t) => mixed(t.remove - t.rmVideos, t.rmVideos);
 function progress(groups) {
   let done = 0;

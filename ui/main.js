@@ -124,6 +124,7 @@ function setApp(state) {
   }
   homeKey = key;
   if (U.booted && U.route.name !== 'home') { paintScan(); renderOpinion(); }
+  paintUpdate();
   // A scan or a second opinion changed the folder's data under the page.
   if (U.booted && S.loaded && A.open && A.open === U.route.folder && A.dataVersion !== U.dataVersion) {
     U.dataVersion = A.dataVersion;
@@ -143,7 +144,7 @@ async function appAction(name, body) {
 function scanToast(s) {
   if (s.cancelled) { toast('Scan stopped. What was analyzed is kept; scan again to continue.', null, 'scan'); return; }
   const parts = [];
-  if (s.analyzed) parts.push('analyzed ' + pl(s.analyzed, S.videos ? 'new file' : 'new photo'));
+  if (s.analyzed) parts.push('analyzed ' + mixed(s.analyzed - (s.videos || 0), s.videos || 0).replace(/ (photos?|videos?)/g, ' new $1'));
   if (s.relinked) parts.push('found ' + pl(s.relinked, S.videos ? 'moved file' : 'moved photo') + ' again');
   if (s.missing) parts.push(files(s.missing) + ' ' + isAre(s.missing) + ' no longer in the folder');
   const failed = (s.failed || []).length;
@@ -220,6 +221,9 @@ function act(a, el) {
     case 'opinion-start': appAction('opinion', { action: 'start' }).catch(oops); break;
     case 'opinion-stop': appAction('opinion', { action: 'stop' }).catch(oops); break;
     case 'help': openHelp(); break;
+    case 'update': openUpdate(); break;
+    case 'update-get': closeSheet(); appAction('update-open', { what: 'download' }).catch(oops); break;
+    case 'update-notes': appAction('update-open', { what: 'notes' }).catch(oops); break;
     case 'start': if (S.total.left) go(here('review')); else openFinish(); break;
     case 'finish': openFinish(); break;
     case 'sheet-close': closeSheet(); break;
